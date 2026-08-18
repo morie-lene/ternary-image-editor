@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="light dark" name="color-scheme"/>
+<title>三値画像修正GUIツール 開発仕様書 v1.5</title>
+<style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --panel-2: #f8fafc;
+      --text: #17202a;
+      --muted: #566573;
+      --line: #d7dde4;
+      --accent: #2f5d8a;
+      --accent-soft: #e9f1f8;
+      --ok: #1d6f42;
+      --ok-soft: #e8f5ed;
+      --warn: #8a5a00;
+      --warn-soft: #fff5dc;
+      --danger: #8b2e2e;
+      --danger-soft: #fdeeee;
+      --code: #17212b;
+      --shadow: 0 8px 24px rgba(25, 42, 62, 0.08);
+      --radius: 12px;
+      --sidebar: 292px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101419;
+        --panel: #171d23;
+        --panel-2: #1c232b;
+        --text: #e8edf2;
+        --muted: #aab5c0;
+        --line: #303943;
+        --accent: #8ab6e3;
+        --accent-soft: #1d3042;
+        --ok: #79c99a;
+        --ok-soft: #173125;
+        --warn: #e0b766;
+        --warn-soft: #3a2d13;
+        --danger: #efa2a2;
+        --danger-soft: #3c2020;
+        --code: #0d1117;
+        --shadow: none;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Yu Gothic UI", "Yu Gothic", "Hiragino Kaku Gothic ProN", Meiryo, system-ui, sans-serif;
+      line-height: 1.72;
+      letter-spacing: 0.015em;
+    }
+    a { color: var(--accent); }
+    code, pre, .mono {
+      font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: var(--sidebar);
+      overflow-y: auto;
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      padding: 22px 18px 28px;
+      z-index: 10;
+    }
+    .brand {
+      border-bottom: 1px solid var(--line);
+      padding: 0 6px 16px;
+      margin-bottom: 14px;
+    }
+    .brand strong { display: block; font-size: 1.02rem; line-height: 1.45; }
+    .brand small { color: var(--muted); }
+    nav ul { list-style: none; padding: 0; margin: 0; }
+    nav li { margin: 2px 0; }
+    nav a {
+      display: block;
+      padding: 7px 9px;
+      border-radius: 7px;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.35;
+    }
+    nav a:hover, nav a:focus { background: var(--accent-soft); color: var(--text); }
+    nav .sub a { padding-left: 23px; font-size: 0.82rem; }
+    main {
+      grid-column: 2;
+      width: min(1180px, calc(100vw - var(--sidebar)));
+      padding: 34px 42px 80px;
+    }
+    .cover {
+      background: linear-gradient(145deg, var(--panel), var(--panel-2));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 42px 46px;
+      margin-bottom: 32px;
+    }
+    .cover .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: 0.08em; font-size: 0.83rem; }
+    h1 { font-size: clamp(2rem, 4vw, 3.15rem); line-height: 1.18; margin: 10px 0 16px; letter-spacing: 0.02em; }
+    .cover .lead { font-size: 1.05rem; color: var(--muted); max-width: 860px; }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 26px;
+    }
+    .meta {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .meta dt { color: var(--muted); font-size: 0.76rem; }
+    .meta dd { margin: 2px 0 0; font-weight: 700; font-size: 0.91rem; }
+    section {
+      scroll-margin-top: 20px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 30px 34px;
+      margin: 0 0 24px;
+    }
+    h2 { font-size: 1.55rem; line-height: 1.35; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+    h3 { font-size: 1.14rem; margin: 28px 0 10px; }
+    h4 { font-size: 1rem; margin: 22px 0 8px; }
+    p { margin: 10px 0; }
+    ul, ol { padding-left: 1.5rem; }
+    li { margin: 4px 0; }
+    .badge {
+      display: inline-block;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      vertical-align: 0.08em;
+      margin-right: 5px;
+    }
+    .must { color: var(--danger); background: var(--danger-soft); }
+    .fixed { color: var(--ok); background: var(--ok-soft); }
+    .note-badge { color: var(--warn); background: var(--warn-soft); }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 0 9px 9px 0;
+      padding: 13px 16px;
+      margin: 16px 0;
+    }
+    .callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+    .callout.danger { border-left-color: var(--danger); background: var(--danger-soft); }
+    .callout.ok { border-left-color: var(--ok); background: var(--ok-soft); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 20px;
+      font-size: 0.91rem;
+    }
+    th, td { border: 1px solid var(--line); padding: 9px 11px; text-align: left; vertical-align: top; }
+    th { background: var(--panel-2); font-weight: 700; }
+    tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
+    pre {
+      margin: 14px 0;
+      padding: 15px 17px;
+      overflow-x: auto;
+      background: var(--code);
+      color: #eef4fa;
+      border-radius: 9px;
+      line-height: 1.55;
+      font-size: 0.88rem;
+    }
+    :not(pre) > code {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 0.08em 0.34em;
+      font-size: 0.92em;
+    }
+    .req {
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 14px;
+      padding: 11px 0;
+      border-bottom: 1px dashed var(--line);
+    }
+    .req:last-child { border-bottom: 0; }
+    .req-id { font-family: Consolas, monospace; color: var(--accent); font-weight: 700; }
+    .wireframe {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      grid-template-rows: auto minmax(300px, 460px) auto;
+      border: 2px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 18px 0;
+      background: var(--panel-2);
+    }
+    .wf-top, .wf-bottom { grid-column: 1 / -1; padding: 12px; background: var(--panel); }
+    .wf-top { border-bottom: 1px solid var(--line); }
+    .wf-bottom { border-top: 1px solid var(--line); color: var(--muted); }
+    .wf-canvas { display: grid; place-items: center; min-height: 330px; background: repeating-conic-gradient(#d8dde2 0 25%, #eef1f4 0 50%) 50% / 22px 22px; color: #24303b; font-weight: 700; }
+    .wf-tools { border-left: 1px solid var(--line); padding: 14px; background: var(--panel); }
+    .wf-box { border: 1px solid var(--line); border-radius: 7px; padding: 9px; margin-bottom: 10px; font-size: 0.85rem; }
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin: 15px 0;
+    }
+    .flow span {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 8px 11px;
+      font-size: 0.88rem;
+    }
+    .flow b { color: var(--accent); }
+    .matrix { display: inline-block; min-width: 9em; }
+    .small { font-size: 0.84rem; color: var(--muted); }
+    .footnotes { font-size: 0.86rem; color: var(--muted); }
+    .footer { text-align: center; color: var(--muted); font-size: 0.82rem; padding: 10px 0 40px; }
+    @media (max-width: 930px) {
+      .layout { display: block; }
+      aside { position: static; width: auto; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
+      nav { columns: 2; }
+      main { width: auto; padding: 24px 16px 60px; }
+      .meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .wireframe { grid-template-columns: 1fr; }
+      .wf-tools { border-left: 0; border-top: 1px solid var(--line); }
+      .req { grid-template-columns: 1fr; gap: 2px; }
+    }
+    @media (max-width: 560px) {
+      nav { columns: 1; }
+      .cover { padding: 28px 22px; }
+      section { padding: 24px 20px; }
+      .meta-grid { grid-template-columns: 1fr; }
+    }
+    @media print {
+      :root { --bg: #fff; --panel: #fff; --panel-2: #f4f4f4; --text: #000; --muted: #444; --line: #bbb; --shadow: none; }
+      aside { display: none; }
+      .layout { display: block; }
+      main { width: auto; padding: 0; }
+      .cover, section { box-shadow: none; break-inside: avoid; }
+      section { break-inside: auto; }
+      h2, h3 { break-after: avoid; }
+      table, pre, .callout, .wireframe { break-inside: avoid; }
+      a { color: #000; text-decoration: none; }
+      a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.75em; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+<aside>
+<div class="brand">
+<strong>三値画像修正GUIツール</strong>
+<small>開発仕様書 v1.5</small>
+</div>
+<nav aria-label="目次">
+<ul>
+<li><a href="#doc-control">0. 文書管理</a></li>
+<li><a href="#purpose">1. 目的・適用範囲</a></li>
+<li><a href="#terms">2. 用語と画素規則</a></li>
+<li><a href="#data">3. 入出力データ</a></li>
+<li class="sub"><a href="#bottom-strip">3.4 下端100画素</a></li>
+<li><a href="#pairing">4. 対応付け・順序</a></li>
+<li><a href="#workflow">5. 作業流れ・状態遷移</a></li>
+<li><a href="#ui">6. 画面構成</a></li>
+<li><a href="#display">7. 表示仕様</a></li>
+<li class="sub"><a href="#gimp">7.3 GIMP互換合成</a></li>
+<li class="sub"><a href="#zoom">7.5 拡大・移動・格子</a></li>
+<li><a href="#editing">8. 編集機能</a></li>
+<li class="sub"><a href="#color-cycle">8.2 色選択・循環</a></li>
+<li><a href="#history">9. Undo・Redo</a></li>
+<li><a href="#boundary">10. 境界生成</a></li>
+<li class="sub"><a href="#boundary-a">10.2 無側生成</a></li>
+<li class="sub"><a href="#boundary-b">10.3 非無側生成</a></li>
+<li><a href="#small-components">11. 小領域検出</a></li>
+<li><a href="#save">12. 保存・既存出力</a></li>
+<li><a href="#errors">13. 異常系</a></li>
+<li><a href="#nonfunctional">14. 非機能要件</a></li>
+<li><a href="#shortcuts">15. 設定・操作割当</a></li>
+<li class="sub"><a href="#settings-persistence">15.2 初期値・永続化</a></li><li class="sub"><a href="#key-capture">15.5 キー入力待機</a></li><li class="sub"><a href="#operation-list">15.7 操作一覧</a></li>
+<li><a href="#acceptance">16. 受入試験</a></li>
+<li><a href="#architecture">17. 推奨構成</a></li>
+<li><a href="#plan">18. 開発順序</a></li>
+<li><a href="#out-of-scope">19. 初期版の対象外</a></li>
+<li><a href="#references">20. 参考資料</a></li>
+</ul>
+</nav>
+</aside>
+<main>
+<header class="cover">
+<div class="eyebrow">DEVELOPMENT SPECIFICATION</div>
+<h1>三値画像修正GUIツール<br/>開発仕様書</h1>
+<p class="lead">原画像と三値画像を重畳比較し、三値画像だけを画素単位で修正して、入力を破壊せず別画像として保存するWindows用デスクトップGUIの初期開発基準。</p>
+<dl class="meta-grid">
+<div class="meta"><dt>文書番号</dt><dd>TIE-SPEC-001</dd></div>
+<div class="meta"><dt>版</dt><dd>1.5</dd></div>
+<div class="meta"><dt>作成日</dt><dd>2026-08-18</dd></div>
+<div class="meta"><dt>状態</dt><dd>仕様凍結・実装着手可</dd></div>
+<div class="meta"><dt>対象OS</dt><dd>Windows 10 / 11 64-bit</dd></div>
+<div class="meta"><dt>実行環境</dt><dd>Python 3.11.x</dd></div>
+<div class="meta"><dt>画像寸法</dt><dd>2048 × 1536 px 固定</dd></div>
+<div class="meta"><dt>保存形式</dt><dd>8-bit RGB PNG</dd></div>
+</dl>
+</header>
+<section id="doc-control">
+<h2>0. 文書管理</h2>
+<div class="callout ok"><strong>規範性：</strong>本書の「必須」「～する」「～しない」と記した事項を初期版の実装・試験基準とする。「推奨構成」「性能目標」は設計指針であり、外部仕様を満たす限り別方式を許容する。</div>
+<table>
+<thead><tr><th>版</th><th>日付</th><th>変更内容</th></tr></thead>
+<tbody>
+<tr><td>1.0</td><td>2026-08-18</td><td>要求、表示、編集、二種の境界生成、小領域検出、保存、異常系、受入条件を統合した初版。</td></tr>
+<tr><td>1.1</td><td>2026-08-18</td><td>画像端・四隅を確認しやすくする画像外余白、端部パン範囲、全体表示時の余白、および対応する受入条件を追加。</td></tr>
+<tr><td>1.2</td><td>2026-08-18</td><td>三値画像の読込時および保存時に下端100画素を「無」へ強制変換する規則、保護領域、未保存判定、境界生成との関係、および対応する受入条件を追加。</td></tr>
+<tr><td>1.3</td><td>2026-08-18</td><td>全離散操作のキー割当を変更できるコンフィグ画面、キー入力待機による割当取得、競合解決、初期化・永続化、異常系、および対応する受入条件を追加。</td></tr>
+<tr><td>1.4</td><td>2026-08-18</td><td>編集用の選択色を三値間で順方向・逆方向に循環切替する機能、操作ID、既定キー割当、描画中の扱い、および対応する受入条件を追加。</td></tr>
+<tr><td>1.5</td><td>2026-08-18</td><td>可変キーと既定キーの表現統一、操作刻み・キー反復、設定初期値と永続範囲、原画像の色空間・入力条件、表示合成順、三値非表示時の編集禁止、変更なし保存、内容比較による未保存判定、外部変更・多重起動競合、描画中排他、論理キー方式、疑似色設定、画素格子自動表示、および対応する受入条件を確定。</td></tr>
+</tbody>
+</table>
+</section>
+<section id="purpose">
+<h2>1. 目的・適用範囲</h2>
+<h3>1.1 製品目的</h3>
+<p>同一対象に対応する原画像と三値画像を画素座標が一致した状態で重畳表示し、利用者が原画像を参照しながら三値画像のみを修正し、修正版を別フォルダへ保存できるようにする。</p>
+<div class="req"><div class="req-id">OBJ-001</div><div>誤りの最終判断は利用者が目視で行う。ツールは正解画像を推論せず、比較・編集・規則処理を支援する。</div></div>
+<div class="req"><div class="req-id">OBJ-002</div><div>原画像は常に読取専用とし、編集・Undo・Redo・保存の対象にしない。</div></div>
+<div class="req"><div class="req-id">OBJ-003</div><div>入力三値画像を上書きせず、編集済み画像を専用出力フォルダへ明示保存する。</div></div>
+<h3>1.2 初期版で扱う範囲</h3>
+<ul>
+<li>複数の画像対の読込、対応付け、自然順整列、前後移動。</li>
+<li>原画像と三値画像の重畳比較、疑似色表示、原画像不透明度変更。</li>
+<li>筆・塗り潰しによる三値画像編集。</li>
+<li>編集用の選択色を直接指定し、または三値間で順方向・逆方向に循環切替する。</li>
+<li>Undo・Redo。</li>
+<li>二種類の自動境界生成。</li>
+<li>50画素以下の独立成分の強調表示。</li>
+<li>別フォルダへの検証付き保存。</li>
+<li>三値画像の下端100画素を読込時・保存時に「無」へ強制し、作業中も保護する。</li>
+<li>主画面の単発・刻み・保持操作に対するキー割当を、設定画面から変更・解除・初期化する。</li>
+<li>変更不要の画像も明示保存でき、出力ファイルの存在を作業済みの運用上の目印として利用できる。</li>
+<li>表示・編集の初期値、疑似色、および主画面操作のキー割当を設定画面から変更・永続化できる。</li>
+</ul>
+</section>
+<section id="terms">
+<h2>2. 用語と画素規則</h2>
+<table>
+<thead><tr><th>用語</th><th>定義</th></tr></thead>
+<tbody>
+<tr><td>原画像</td><td>比較対象となる無加工の画像。ファイル名は原則として <code>①</code> または <code>②</code> で始まる。</td></tr>
+<tr><td>三値画像</td><td><code>#000000</code>、<code>#808080</code>、<code>#FFFFFF</code> の三値だけで構成される編集対象画像。ファイル名は <code>001</code> または <code>002</code> で始まる。</td></tr>
+<tr><td>編集済み画像</td><td>出力フォルダに保存された三値画像の修正版。</td></tr>
+<tr><td>無</td><td>黒 <code>#000000</code>。内部ラベル値 <code>0</code>。</td></tr>
+<tr><td>有</td><td>灰 <code>#808080</code>。内部ラベル値 <code>1</code>。</td></tr>
+<tr><td>境界</td><td>白 <code>#FFFFFF</code>。内部ラベル値 <code>2</code>。</td></tr>
+<tr><td>選択ラベル</td><td>筆および塗り潰しが次に書き込む意味値。「無」「有」「境界」のいずれか一つ。表示用疑似色ではなく内部ラベル値で管理する。</td></tr>
+<tr><td>四近傍</td><td>対象画素の上・下・左・右。斜めは含まない。</td></tr>
+<tr><td>八近傍</td><td>四近傍に斜め四方向を加えた八方向。</td></tr>
+<tr><td>自然順整列</td><td>数字列を数値として比較し、<code>1, 2, 10</code> の順に並べる方式。</td></tr>
+<tr><td>下端保護領域</td><td>三値画像の座標 <code>0 ≤ x ≤ 2047</code>、<code>1436 ≤ y ≤ 1535</code> に当たる下端100行。常に「無」<code>#000000</code> とし、利用者操作による変更を許可しない。</td></tr>
+<tr><td>操作ID</td><td>保存、Undo、表示切替等の操作を設定値や表示名から独立して識別する不変の識別子。例：<code>file.save</code>。</td></tr>
+<tr><td>キー組合せ</td><td><code>Ctrl</code>、<code>Alt</code>、<code>Shift</code>の修飾キー0個以上と、修飾キー以外の主キー1個を同時に押す一段の入力。複数段の連続入力は含まない。</td></tr>
+<tr><td>キー入力待機状態</td><td>設定画面が通常の操作実行を停止し、次に入力された有効なキー組合せを割当候補として取得する状態。</td></tr>
+<tr><td>基準配列</td><td>未保存判定の比較対象。読込時は検証済み画像を下端強制無化する直前のラベル配列、正常保存後は保存した正規化済みラベル配列とする。</td></tr>
+<tr><td>未保存状態</td><td>現在のラベル配列と基準配列の内容が一画素以上異なる状態。履歴上の位置だけでは判定しない。</td></tr>
+<tr><td>出力あり</td><td>対応する出力ファイルが存在する状態。変更不要画像を明示保存した場合も含む。初期版では別個の「確認済み」管理情報を持たない。</td></tr>
+<tr><td>操作型</td><td>操作の発火方式。「単発」は一押下で一度実行、「刻み」は一入力ごとに規定量を変更し自動反復可、「保持」はキー押下中だけ状態を有効にする。</td></tr>
+<tr><td>論理キー</td><td>WindowsおよびQtが解釈したキー意味と修飾キーの組合せ。物理走査符号や鍵盤上の位置そのものではない。</td></tr>
+</tbody>
+</table>
+<div class="callout"><strong>規則の使い分け：</strong>塗り潰しと境界生成は誤変更を抑えるため四近傍、小領域検出は斜めに連なる塊を見逃さないため八近傍を使う。美観のために近傍規則を統一してはならない。</div>
+</section>
+<section id="data">
+<h2>3. 入出力データ</h2>
+<h3>3.1 共通条件</h3>
+<div class="req"><div class="req-id">DAT-001</div><div>原画像・三値画像はともに <strong>2048 × 1536ピクセル</strong>であること。</div></div>
+<div class="req"><div class="req-id">DAT-002</div><div>画像対は回転、反転、切抜き、拡縮を含めて座標系が完全に一致していること。</div></div>
+<div class="req"><div class="req-id">DAT-003</div><div>寸法または座標方向に疑義がある場合、自動拡縮・回転・位置合わせを行わず、その画像対を編集対象外とする。</div></div>
+<h3>3.2 原画像</h3>
+<div class="req"><div class="req-id">DAT-008</div><div>読込形式はPNG、JPEG、BMP、TIFFとし、復号後の画素形式が8-bit RGBまたは8-bitグレースケールである画像だけを受理する。グレースケールは表示用にRGBへ展開する。</div></div>
+<div class="req"><div class="req-id">DAT-009</div><div>アルファ付き、索引色、CMYK、16-bit以上、浮動小数点その他の原画像形式は初期版では拒否する。無言の量子化や背景合成を行わない。</div></div>
+<div class="req"><div class="req-id">DAT-010</div><div>ICC色特性がある場合は表示計算用にsRGBへ変換し、存在しない場合はsRGBとして扱う。この変換は表示用メモリ上だけで行い、原ファイルを書き換えない。</div></div>
+<div class="req"><div class="req-id">DAT-011</div><div>EXIF/TIFF Orientationは「なし」または値1だけを許容する。値2～8は座標一致を保証できないため、自動適用せず当該画像対を拒否する。</div></div>
+<p>「原画像を加工しない」とは、原ファイルおよび原解像度の意味画素を書き換えないことを指す。画面表示に必要なsRGB変換と倍率変更時の一時的補間は許容する。</p>
+<h3>3.3 三値画像・出力画像</h3>
+<ul>
+<li>入力形式：8-bit PNG。RGBまたはグレースケールを許容する。</li>
+<li>グレースケール値は <code>0 → 無</code>、<code>128 → 有</code>、<code>255 → 境界</code> と解釈する。</li>
+<li>RGB値は <code>(0,0,0)</code>、<code>(128,128,128)</code>、<code>(255,255,255)</code> のみ許容する。</li>
+<li>アルファチャンネル、16-bit、索引色、その他の色を含む入力は拒否する。</li>
+<li>内部表現は <code>uint8</code> の二次元ラベル配列 <code>0/1/2</code> とする。</li>
+<li>出力形式は2048 × 1536、8-bit RGB PNG、アルファなし、三色のみとする。</li>
+</ul>
+<h3 id="bottom-strip">3.4 下端100画素の強制「無」化</h3>
+<p>画像座標は左上を原点 <code>(0,0)</code> とし、右方向を <code>x</code> 正、下方向を <code>y</code> 正とする。下端保護領域 <code>P</code> を次で定義する。</p>
+<pre>P = { (x, y) | 0 ≤ x ≤ 2047, 1436 ≤ y ≤ 1535 }</pre>
+<div class="req"><div class="req-id">DAT-004</div><div>入力三値画像および既存の編集済み画像を開く際、形式・寸法・三色制約を画像全体について検証した後、内部ラベル配列の領域 <code>P</code> をすべて「無」<code>0</code> へ設定する。下端領域に異常色があっても黒化で隠さず、入力不正として拒否する。</div></div>
+<div class="req"><div class="req-id">DAT-005</div><div>この規則は三値画像だけに適用する。原画像の下端100画素は加工せず、比較表示でも原画像本来の内容を維持する。</div></div>
+<div class="req"><div class="req-id">DAT-006</div><div>読込時の強制「無」化で一画素以上が変化した場合、現在画像を未保存状態とし、状態欄へ変更画素数と理由を表示する。自動変換自体はUndo・Redo履歴へ追加しない。</div></div>
+<div class="req"><div class="req-id">DAT-007</div><div>領域 <code>P</code> は作業中も保護領域とし、筆、塗り潰し、境界生成その他の画素変更操作による書換えを許可しない。保存時には防御的に同じ強制「無」化を再適用する。</div></div>
+<div class="callout warn"><strong>基準配列との関係：</strong>読込時は強制無化直前の検証済み配列を基準配列とする。したがって下端に非無画素があった画像は、利用者が何も描かなくても保存するまで未保存状態となる。</div>
+</section>
+<section id="pairing">
+<h2>4. ファイル対応付け・順序</h2>
+<h3>4.1 フォルダ指定</h3>
+<p>利用者は原画像、三値画像、編集済み画像出力の三フォルダを個別に指定する。初期版は下位フォルダを探索しない。</p>
+<div class="req"><div class="req-id">PAIR-004</div><div>三フォルダは正規化した絶対パスと、可能な場合はWindowsの実体識別情報で比較する。ジャンクション、シンボリックリンク、大文字小文字差等を介して同じ実体を指す入力・出力フォルダの組合せを拒否する。</div></div>
+<h3>4.2 対応キー</h3>
+<table>
+<thead><tr><th>原画像先頭</th><th>三値画像先頭</th><th>正規化群番号</th></tr></thead>
+<tbody>
+<tr><td><code>①</code></td><td><code>001</code></td><td><code>001</code></td></tr>
+<tr><td><code>②</code></td><td><code>002</code></td><td><code>002</code></td></tr>
+</tbody>
+</table>
+<p>拡張子を除いたファイル名を幹名とする。幹名をUnicode NFCへ正規化し、末尾27 Unicodeコードポイントを抽出する。一組の対応キーは次で定義する。</p>
+<pre>pair_key = (正規化群番号, NFC正規化した幹名の末尾27コードポイント)</pre>
+<div class="req"><div class="req-id">PAIR-001</div><div>群番号と末尾27文字の双方が完全一致した原画像・三値画像だけを一組として採用する。対応判定は大文字小文字を区別し、曖昧一致や類似文字置換を行わない。</div></div>
+<div class="req"><div class="req-id">PAIR-002</div><div>幹名が27コードポイント未満、想定外の先頭、対応相手なし、同一キー重複は自動補完せず、対象外一覧へ記録する。</div></div>
+<div class="req"><div class="req-id">PAIR-003</div><div>単なる配列位置や一覧順だけで画像対を決定しない。</div></div>
+<h3>4.3 整列と移動対象</h3>
+<p>対応付け後の有効な画像対だけを編集用一覧に含め、三値画像のNFC正規化済み幹名を基準に、大文字小文字を区別しない自然順で整列する。同順位時は元の幹名、完全パスの順で補助比較する。</p>
+<p>対象外画像は別のエラー一覧へ表示し、前後画像操作では停止せず自動的に飛ばす。これにより順序は有効画像対の中で連続する。</p>
+<h3>4.4 出力名</h3>
+<p>出力ファイル名は三値画像の幹名を継承し、拡張子を <code>.png</code> として出力フォルダ直下へ保存する。出力名衝突は一覧生成時に検出し、該当画像対を対象外とする。</p>
+</section>
+<section id="workflow">
+<h2>5. 作業流れ・状態遷移</h2>
+<div aria-label="作業流れ" class="flow">
+<span>三フォルダ指定</span><b>→</b><span>対応・入力検査</span><b>→</b><span>画像対一覧生成</span><b>→</b><span>編集元選択</span><b>→</b><span>下端100px強制無化</span><b>→</b><span>表示・編集</span><b>→</b><span>明示保存</span><b>→</b><span>前後移動</span>
+</div>
+<h3>5.1 現在画像の状態</h3>
+<table>
+<thead><tr><th>状態</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td>未読込</td><td>有効な画像対が選択されていない。</td></tr>
+<tr><td>読込済み・未変更</td><td>現在配列と基準配列が完全一致する。</td></tr>
+<tr><td>編集済み・未保存</td><td>現在配列と基準配列が一画素以上異なる。</td></tr>
+<tr><td>保存済み</td><td>直前の正常保存で基準配列が現在配列へ更新され、対応する有効な出力が存在する。</td></tr>
+<tr><td>処理中</td><td>保存、塗り潰し、境界生成、小領域解析等を実行中。</td></tr>
+</tbody>
+</table>
+<div class="req"><div class="req-id">STATE-001</div><div>未保存判定は現在配列と基準配列の内容比較で行う。高速化のためハッシュを用いてよいが、ハッシュ一致時に必要な完全比較を省略して誤判定してはならない。</div></div>
+<div class="req"><div class="req-id">STATE-002</div><div>履歴位置、操作回数、更新時刻だけを未保存判定の唯一の根拠にしない。編集によって基準配列と同じ内容へ戻った場合は未保存状態を解除する。</div></div>
+<div class="req"><div class="req-id">STATE-003</div><div>出力ファイルの存在を一覧上の「出力あり」として表示する。初期版では、保存せず確認だけ完了した状態を別管理しない。</div></div>
+<h3>5.2 未保存状態からの移動・終了</h3>
+<p>前画像、次画像、一覧選択、フォルダ再読込、アプリ終了のいずれでも、未保存変更がある場合は次を提示する。</p>
+<table>
+<thead><tr><th>選択肢</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td>保存して続行</td><td>保存成功後のみ遷移または終了する。失敗時は現在画像へ留まる。</td></tr>
+<tr><td>変更を破棄して続行</td><td>未保存変更と現在画像のUndo・Redo履歴を破棄して続行する。</td></tr>
+<tr><td>中止</td><td>遷移・終了を行わない。</td></tr>
+</tbody>
+</table>
+<h3>5.3 移動先に編集済み画像がある場合</h3>
+<table>
+<thead><tr><th>選択肢</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td>編集済み画像から続ける</td><td>出力画像を編集元として開く。以後の保存は同じ出力へ置換保存する。</td></tr>
+<tr><td>入力三値画像から始める</td><td>入力版を編集元として開く。既存出力は変更しない。後に保存する際、既存出力の上書きを再確認する。</td></tr>
+<tr><td>中止</td><td>移動しない。</td></tr>
+</tbody>
+</table>
+<h3>5.4 変更不要画像</h3>
+<div class="req"><div class="req-id">STATE-004</div><div>現在配列が基準配列と一致していても保存操作を許可する。対応する出力が存在しない場合は、正規化済み現在配列を通常の保存手順で出力し、「出力あり」とする。</div></div>
+<div class="req"><div class="req-id">STATE-005</div><div>出力が既に存在し、保存候補と内容が同一で外部変更もない場合は、再書込みを省略して「既に保存済み」と通知してよい。</div></div>
+<div class="callout"><strong>進捗管理の範囲：</strong>変更不要画像も明示保存して出力を作る運用を採る。独立した確認済み台帳やサイドカー管理ファイルは初期版の対象外とする。</div>
+</section>
+<section id="ui">
+<h2>6. 画面構成</h2>
+<div aria-label="画面構成概略" class="wireframe" role="img">
+<div class="wf-top">フォルダ設定｜再走査｜前へ｜次へ｜保存｜Undo｜Redo｜設定｜表示倍率｜画像番号・状態</div>
+<div class="wf-canvas">重畳画像キャンバス</div>
+<div class="wf-tools">
+<div class="wf-box"><strong>表示</strong><br/>原画像／三値表示<br/>不透明度／疑似色／格子自動</div>
+<div class="wf-box"><strong>編集</strong><br/>筆／塗り潰し<br/>色（前／次循環）／筆径／形状</div>
+<div class="wf-box"><strong>境界生成</strong><br/>無側／非無側<br/>太さ／実行</div>
+<div class="wf-box"><strong>検査</strong><br/>小領域表示切替<br/>有・境界別検出数</div>
+<div class="wf-box"><strong>画像一覧</strong><br/>対応可否／出力有無<br/>現在位置</div>
+</div>
+<div class="wf-bottom">画像座標｜表示倍率｜筆径｜選択色｜保護領域｜編集元｜出力有無｜未保存状態｜処理・警告</div>
+</div>
+<div class="req"><div class="req-id">UI-001</div><div>画面中心を画像キャンバスとし、主要編集操作を一画面内で完結させる。</div></div>
+<div class="req"><div class="req-id">UI-002</div><div>現在の画像番号、総数、編集元、出力有無、未保存状態を常時表示する。</div></div>
+<div class="req"><div class="req-id">UI-003</div><div>処理中または筆描画中は競合する編集・移動操作を無効化し、処理状態を明示する。</div></div>
+<div class="req"><div class="req-id">UI-004</div><div>ポインタが下端保護領域にある場合は編集禁止表示へ切り替え、状態欄へ「下端100画素・強制無領域」と表示する。</div></div>
+<div class="req"><div class="req-id">UI-005</div><div>設定画面は、キー割当が未設定または破損していても、メニューまたは常設の設定ボタンから開けること。設定へ到達する手段をキー割当だけに依存させない。</div></div>
+<div class="req"><div class="req-id">UI-006</div><div>編集色欄には「無」「有」「境界」の直接選択部品と現在の選択ラベルを表示する。直接選択、順逆循環、メニュー、ボタン、割当キーは同じ操作IDと状態管理器を使用する。</div></div>
+<div class="req"><div class="req-id">UI-007</div><div>三値画像が非表示の場合、画素変更操作とラベル依存オーバーレイを無効または非表示にし、状態欄へ理由を表示する。原画像だけの閲覧は可能とする。</div></div>
+<div class="req"><div class="req-id">UI-008</div><div>250msを超える可能性がある処理では処理中表示を出し、主ウィンドウをOS上の応答不能状態にしない。結果は完了時に一括反映する。</div></div>
+</section>
+<section id="display">
+<h2>7. 表示仕様</h2>
+<h3>7.1 レイヤ構成と表示可否</h3>
+<ol>
+<li>キャンバス背景：画像外余白を示す中立色の表示領域。画像データには含めない。</li>
+<li>下層：三値画像の表示像。</li>
+<li>上層：原画像。</li>
+<li>最前面：画像外枠、筆範囲、画素格子、小領域強調、下端保護領域の境界表示等の保存対象外オーバーレイ。</li>
+</ol>
+<div class="req"><div class="req-id">VIEW-011</div><div>原画像と三値画像は個別に表示・非表示を切り替えられる。原画像の不透明度は0～100％、初回既定値50％とする。</div></div>
+<div class="req"><div class="req-id">VIEW-012</div><div>三値画像が非表示の間は、筆、塗り潰し、境界生成、Undo、Redoその他のラベル配列を変更する操作を実行できない。履歴と未保存内容は保持し、再表示後に操作を再開できる。</div></div>
+<div class="req"><div class="req-id">VIEW-013</div><div>三値画像が非表示の間は、小領域強調と筆範囲を表示しない。画素格子と画像外枠は表示設定に従う。</div></div>
+<h3>7.2 原画像の表示変換</h3>
+<p>原画像は3.2の規則で表示用sRGB 8-bit RGBへ変換する。この表示用配列を原解像度の比較計算へ用い、原ファイル自体へ保存しない。</p>
+<div class="req"><div class="req-id">VIEW-014</div><div>100％表示では原画像・三値画像とも一画像画素を一表示論理画素へ対応させ、座標のずれや先行補間を生じさせない。</div></div>
+<h3 id="gimp">7.3 GIMP互換比較モード</h3>
+<div class="callout warn"><strong>解釈固定：</strong>三値画像を通常の不透明基底、原画像を上層の「比較（明）」として扱う。既定キー名やGIMPの将来版ではなく、以下の数式を規範とする。</div>
+<p>三値表示画素を <code>T</code>、原画像画素を <code>O</code>、原画像不透明度を <code>α</code> とする。sRGB 8-bit成分を0～1へ正規化し、2048×1536の原解像度上でRGB成分ごとに計算する。</p>
+<pre>M = max(T, O)
+DisplayNative = (1 - α) × T + α × M</pre>
+<ul>
+<li><code>α = 0</code> では三値画像だけを表示する。</li>
+<li><code>α = 1</code> では <code>max(T, O)</code> を表示する。</li>
+<li>合成後の <code>DisplayNative</code> をキャンバス倍率へ拡縮する。各レイヤを別々に縮小してから合成しない。</li>
+<li>GIMP互換受入試験は100％表示で行い、8-bit出力の差が各成分±1以内なら合格とする。</li>
+</ul>
+<h3>7.4 疑似色モード</h3>
+<p>三値の保存値は変更せず、表示時のみ高色差の疑似色へ写像する。初期配色は次とし、設定画面で変更可能とする。</p>
+<table>
+<thead><tr><th>ラベル</th><th>保存色</th><th>初期疑似色</th></tr></thead>
+<tbody>
+<tr><td>無</td><td><code>#000000</code></td><td><code>#204060</code>（濃青）</td></tr>
+<tr><td>有</td><td><code>#808080</code></td><td><code>#FF3B7A</code>（赤紫）</td></tr>
+<tr><td>境界</td><td><code>#FFFFFF</code></td><td><code>#FFE600</code>（黄）</td></tr>
+</tbody>
+</table>
+<p>疑似色モードでは原解像度上で通常のアルファ合成を行い、その完成像を表示倍率へ拡縮する。疑似色、格子、警告表示は保存画像へ含めない。</p>
+<h3 id="zoom">7.5 拡大・縮小・表示範囲移動</h3>
+<div class="req"><div class="req-id">VIEW-001</div><div>マウスホイール上方向で一段拡大、下方向で一段縮小し、操作開始時のポインタ直下にある画像座標を可能な限り固定する。一段は現倍率×1.25または÷1.25とする。</div></div>
+<div class="req"><div class="req-id">VIEW-002</div><div>表示倍率は5％～6400％。100％表示と全体表示を用意する。範囲外へは進まず端値で停止する。</div></div>
+<div class="req"><div class="req-id">VIEW-003</div><div>中ボタンドラッグ、または現在「一時パン操作」に割り当てられた保持キー＋左ドラッグで表示範囲を移動する。保持キーの初期割当はSpaceとする。</div></div>
+<div class="req"><div class="req-id">VIEW-004</div><div>画像切替時は倍率と表示中心座標を維持する。ただし全体表示中は切替先も全体表示とする。</div></div>
+<div class="req"><div class="req-id">VIEW-005</div><div>原解像度で合成した完成像は、100％超で最近傍補間、100％未満で高品質縮小補間を用いて表示する。元画像およびラベル配列は変更しない。</div></div>
+<div class="req"><div class="req-id">VIEW-006</div><div>表示範囲移動は画像矩形の内側へ制限せず、画像外の仮想余白まで許可する。画像の各辺および各隅をキャンバス表示領域の中央まで移動できること。</div></div>
+<div class="req"><div class="req-id">VIEW-007</div><div>キャンバス表示領域を幅 <code>Vw</code>・高さ <code>Vh</code>、現在倍率での画像表示寸法を幅 <code>Iw</code>・高さ <code>Ih</code>、画像左上の表示座標を <code>(x,y)</code> としたとき、パン可能範囲を原則として <code>Vw/2 - Iw ≤ x ≤ Vw/2</code>、<code>Vh/2 - Ih ≤ y ≤ Vh/2</code> とする。</div></div>
+<div class="req"><div class="req-id">VIEW-008</div><div>画像外余白は画像と判別できる中立色または市松模様で表示し、画像境界には保存対象外の明瞭な外枠を表示する。画像外での筆・塗り潰し・画素参照は作用しない。</div></div>
+<div class="req"><div class="req-id">VIEW-009</div><div>全体表示では画像全体を中央配置し、キャンバス寸法が許す限り上下左右に各32論理画素以上の余白を確保する。画像全体表示を余白より優先する。</div></div>
+<div class="req"><div class="req-id">VIEW-010</div><div>下端保護領域の上端 <code>y=1436</code> に保存対象外の識別線を表示し、必要に応じて薄い網掛けを重ねる。</div></div>
+<div class="req"><div class="req-id">VIEW-015</div><div>全体表示中にウィンドウまたはキャンバス寸法が変化した場合は全体表示倍率を再計算する。手動倍率中は画像中心座標と倍率を維持し、表示可能範囲だけを再制限する。</div></div>
+<h3>7.6 画素格子</h3>
+<p>格子設定は「自動表示ON」と「自動表示OFF」の二状態とする。</p>
+<div class="req"><div class="req-id">VIEW-016</div><div>自動表示ONでは、一画像画素が実画面上で8機器画素以上の幅を占める場合だけ格子を表示する。自動表示OFFでは倍率にかかわらず表示しない。低倍率での常時表示モードは設けない。</div></div>
+<ul><li>格子線は1実画面画素、半透明、保存対象外。</li><li>Windowsの表示倍率と機器画素比を反映して判定する。</li></ul>
+<h3>7.7 座標精度・DPI変更</h3>
+<div class="req"><div class="req-id">VIEW-017</div><div>ズーム、パン、DPI倍率にかかわらず、画面座標から画像座標への変換誤差で隣接画素を編集してはならない。筆ポインタは実際の変更範囲を示す。</div></div>
+<div class="req"><div class="req-id">VIEW-018</div><div>ウィンドウを異なるDPIのモニターへ移動した場合、機器画素比、格子判定、低倍率筆判定を再計算し、表示中心の画像座標を維持する。</div></div>
+</section>
+<section id="editing">
+<h2>8. 編集機能</h2>
+<h3>8.1 共通</h3>
+<ul>
+<li>編集対象は三値ラベル配列だけとする。</li>
+<li>選択色は「無」「有」「境界」の三つだけ。</li>
+<li>半透明、ぼかし、アンチエイリアス、中間色を生成しない。</li>
+<li>表示用疑似色を編集値として書き込まない。</li>
+<li>下端保護領域 <code>P</code> を全画素変更操作の対象外とする。</li>
+<li>三値画像が非表示の場合は画素変更操作を開始できない。</li>
+</ul>
+<h3 id="color-cycle">8.2 選択色の直接・循環切替</h3>
+<div class="req"><div class="req-id">EDIT-001</div><div>現在の選択ラベルを「無」<code>0</code>、「有」<code>1</code>、「境界」<code>2</code>のいずれか一つとして保持し、筆と塗り潰しが同じ状態を使用する。初回起動時および再起動時の既定値は「有」とする。</div></div>
+<div class="req"><div class="req-id">EDIT-002</div><div>利用者は画面上の直接選択、順方向循環、逆方向循環、メニュー、割当キーのいずれからも選択ラベルを変更できる。</div></div>
+<div class="req"><div class="req-id">EDIT-003</div><div>順方向循環は <code>無 → 有 → 境界 → 無</code>、逆方向循環は <code>無 → 境界 → 有 → 無</code> の固定順序とし、一入力につき一段だけ巡回する。</div></div>
+<div class="req"><div class="req-id">EDIT-004</div><div>循環順序は内部ラベル値を基準とし、疑似色のRGB値や表示状態によって変えない。</div></div>
+<div class="req"><div class="req-id">EDIT-005</div><div>選択ラベル変更は画像画素、未保存状態、履歴、道具、倍率、表示位置へ影響させない。画像を前後移動しても同一起動中は維持し、アプリ再起動時は「有」へ戻す。</div></div>
+<div class="req"><div class="req-id">EDIT-006</div><div>変更後は編集欄、筆ポインタ、状態欄を直ちに更新し、意味名と保存色を確認できること。</div></div>
+<h3>8.3 筆</h3>
+<table><tbody>
+<tr><th>形状</th><td>円形、正方形</td></tr>
+<tr><th>筆径</th><td>1～512画像画素、初回既定値5。増減操作一回につき±1画素。</td></tr>
+<tr><th>操作</th><td>左押下から解放まで描画し、ドラッグ点間を補間する。</td></tr>
+<tr><th>範囲</th><td>画像矩形内かつ <code>y≤1435</code> の部分だけを変更する。</td></tr>
+<tr><th>Undo単位</th><td>一回の押下から正常解放までを一操作とする。</td></tr>
+</tbody></table>
+<div class="req"><div class="req-id">EDIT-007</div><div>筆跡は押下時点の選択ラベル、筆径、形状を固定して完了させる。描画中にこれらの変更操作を入力しても発火・予約しない。</div></div>
+<div class="req"><div class="req-id">EDIT-008</div><div>正方形筆はD×D画素の矩形とする。円形筆はD×D外接矩形内の画素中心について、正規化楕円式が1以下となる画素を含める。偶数径ではポインタ下画素を中央四画素の左上側として、余剰一画素を+x、+y方向へ配する。画面上の筆範囲はこの離散マスクと完全一致させる。</div></div>
+<pre>円形マスク（i,j = 0..D-1）
+((i + 0.5 - D/2) / (D/2))² + ((j + 0.5 - D/2) / (D/2))² ≤ 1</pre>
+<p>低倍率では、画面上の筆径が4実画面画素以上の場合だけ描画を許可する。</p>
+<pre>editable = brush_diameter × display_scale × device_pixel_ratio ≥ 4</pre>
+<h3>8.4 塗り潰し</h3>
+<ul>
+<li>クリック地点と同じ内部ラベル値を持ち、上下左右で連続する領域を選択色へ置換する。</li>
+<li>四近傍連結を用い、斜め方向だけで接する同色領域は含めない。</li>
+<li>下端保護領域は探索不能な壁として扱う。</li>
+<li>許容差は設けない。対象色と選択色が同じ場合は変更も履歴追加もしない。</li>
+<li>一回の塗り潰しを一つのUndo単位とし、結果を一括反映する。</li>
+<li>低倍率筆径制限の対象外とする。</li>
+</ul>
+<h3>8.5 描画中の排他と取消</h3>
+<div class="req"><div class="req-id">EDIT-009</div><div>筆の左押下から解放まで、マウス移動、解放、固定取消キーEsc以外のアプリケーション命令を無効化する。入力を描画後へ予約して実行してはならない。</div></div>
+<div class="req"><div class="req-id">EDIT-010</div><div>正常なマウス解放では筆跡を確定する。Esc、ウィンドウ非アクティブ化、ポインタ捕捉喪失、アプリケーション例外が生じた場合は、現在の筆跡全体を押下前へ戻して履歴へ追加しない。</div></div>
+<div class="req"><div class="req-id">EDIT-011</div><div>画像外で解放されてもポインタ捕捉が維持されている場合は、画像内へ描かれた部分だけを正常確定する。</div></div>
+<div class="callout warn"><strong>固定例外：</strong>Escは進行中操作を安全に取り消すための予約キーとし、操作割当の変更対象にしない。</div>
+<h3>8.6 初期版で搭載しない編集機能</h3>
+<ul><li>直線描画</li><li>矩形選択</li><li>スポイト</li><li>コピー・貼り付け</li><li>前後画像からの複製</li><li>選択範囲だけの自動境界生成</li></ul>
+</section>
+<section id="history">
+<h2>9. Undo・Redoと未保存判定</h2>
+<div class="req"><div class="req-id">HIST-001</div><div>筆、塗り潰し、境界生成をUndo・Redo対象とする。</div></div>
+<div class="req"><div class="req-id">HIST-002</div><div>表示倍率、表示位置、不透明度、疑似色、格子、小領域表示、選択ラベル、設定変更は履歴へ入れない。</div></div>
+<div class="req"><div class="req-id">HIST-003</div><div>Undo後に新しい編集を行った場合、その時点より先のRedo履歴を破棄する。</div></div>
+<div class="req"><div class="req-id">HIST-004</div><div>正常保存後は現在配列の複製を新しい基準配列とする。保存時の履歴位置も記録してよいが、未保存判定の唯一の根拠にしない。</div></div>
+<div class="req"><div class="req-id">HIST-005</div><div>履歴は現在画像の編集セッションだけ保持し、画像を離れた時点で破棄する。再訪時に過去セッションのUndoは復元しない。</div></div>
+<div class="req"><div class="req-id">HIST-006</div><div>履歴の古い項目または保存位置が上限により破棄されても、基準配列との内容比較による未保存判定を維持する。</div></div>
+<div class="req"><div class="req-id">HIST-007</div><div>三値画像が非表示の間はUndo・Redo操作を無効化するが、履歴自体は破棄しない。</div></div>
+<p>履歴上限は「200操作」または「512MiB」の先に到達した方とし、超過時は古い履歴から破棄して状態欄へ通知する。</p>
+<p>読込時の下端強制無化は入力正規化であり、Undo・Redo対象にしない。ただし強制無化前の配列を基準とするため、差分がある場合は保存まで未保存状態となる。</p>
+</section>
+<section id="boundary">
+<h2>10. 自動境界生成</h2>
+<h3>10.1 共通仕様</h3>
+<ul>
+<li>現在画像全体を対象とし、三値画像が表示中の場合だけ実行可能とする。</li>
+<li>四近傍だけを用いる。斜め接触だけでは太さ1の境界を生成しない。</li>
+<li>境界太さは1～64画素、初回既定値1。増減操作一回につき±1画素。</li>
+<li>処理開始時点のラベル配列を基準に対象を一括決定し、完了時に一括反映する。</li>
+<li>一回の実行全体を一つのUndo単位とし、Redo可能とする。</li>
+<li>変更画素が0の場合は履歴へ追加しない。</li>
+<li>処理後に小領域検出結果を再計算する。</li>
+<li>原画像は変更しない。</li>
+<li>下端保護領域は「無」として距離計算の基準に含めてよいが、書換対象から必ず除外する。</li>
+</ul>
+<p>画面の「境界を生成」ボタン、メニュー、または現在割り当てられたキーから実行する。既定割当は <code>Ctrl+Shift+B</code> とする。</p>
+<h3 id="boundary-a">10.2 モードA：無側へ生成</h3>
+<p><span class="badge fixed">既存方式</span>「有」と「無」が直接接し、間に「境界」がない箇所について、無側の画素を境界へ変更する。</p>
+<ol>
+<li>四近傍に「有」がある「無」画素を接触種 <code>S0</code> とする。</li>
+<li>太さ1では <code>S0</code> を「境界」へ変更する。</li>
+<li>太さNでは、<code>S0</code> から「無」画素だけを通る四近傍距離 <code>0～N-1</code> の「無」画素を変更する。</li>
+<li>既存「境界」は通過元にも書換対象にもせず、「無－境界－有」では新たに生成しない。</li>
+<li>「有」と既存「境界」は変更しない。</li>
+</ol>
+<pre>太さ1
+処理前: 無 有 有
+処理後: 境 有 有
+
+既存境界あり
+処理前: 無 境 有
+処理後: 無 境 有</pre>
+<h3 id="boundary-b">10.3 モードB：非無側へ生成</h3>
+<p><span class="badge fixed">追加方式</span>「無」と「有または境界」の境界について、有・境界側を一定幅の境界へ変更し、黒側は維持する。</p>
+<ol>
+<li>処理開始時点の「無」を基準集合とする。</li>
+<li>各非無画素について、「無」から非無画素だけを通る四近傍最短距離を求める。</li>
+<li>距離1～Nの「有」または「境界」を「境界」へ設定する。</li>
+<li>既存境界を最終幅へ数え、同じ太さで繰り返しても太くしない。</li>
+<li>「無」は変更せず、画像外部を「無」とみなさない。</li>
+</ol>
+<pre>太さ1
+処理前: 無 有 有
+処理後: 無 境 有
+
+既存境界あり・太さ2
+処理前: 無 境 有 有
+処理後: 無 境 境 有</pre>
+<div class="callout warn"><strong>注意：</strong>幅の狭い「有」領域は全体が境界へ変わり得る。これは正常動作であり、Undoで戻せる。</div>
+</section>
+<section id="small-components">
+<h2>11. 50画素以下の独立成分表示</h2>
+<div class="req"><div class="req-id">COMP-001</div><div>「有」と「境界」を色ごとに分離し、それぞれ八近傍連結成分を求める。両色を同一成分として結合しない。</div></div>
+<div class="req"><div class="req-id">COMP-002</div><div>面積1～50画素の成分を対象とし、50画素ちょうどを含む。「無」は対象外。</div></div>
+<div class="req"><div class="req-id">COMP-003</div><div>対象成分を画面上だけで強調し、三値配列や保存画像を変更しない。</div></div>
+<div class="req"><div class="req-id">COMP-004</div><div>強調表示は切替可能とし、「有」「境界」別の成分数と合計を状態欄へ表示する。</div></div>
+<div class="req"><div class="req-id">COMP-005</div><div>三値画像が非表示の場合は強調オーバーレイを隠す。設定状態と直近解析結果は保持し、再表示時に現改訂番号と一致すれば再利用する。</div></div>
+<h3>11.1 表示方法</h3>
+<ul><li>対象画素へ半透明の警告色を重畳する。</li><li>成分の外接矩形を2実画面画素の警告線で表示する。</li><li>警告色は疑似色と区別できる白黒交互または高彩度の縞表示とする。</li></ul>
+<h3>11.2 再計算契機</h3>
+<ul><li>画像読込後</li><li>筆描画終了後</li><li>塗り潰し完了後</li><li>Undo・Redo後</li><li>境界生成後</li><li>表示をOFFからONへ切り替え、結果が現改訂番号と一致しない時</li></ul>
+<p>別処理単位で実行する場合は画像改訂番号を照合し、古い解析結果を新しい画像状態や別画像へ反映しない。</p>
+</section>
+<section id="save">
+<h2>12. 保存・既存出力・競合制御</h2>
+<h3>12.1 明示保存</h3>
+<div class="req"><div class="req-id">SAVE-001</div><div>正式保存は保存ボタン、メニュー、または現在「保存」に割り当てられたキーから実行する。既定割当は <code>Ctrl+S</code> とする。画像移動時の「保存して続行」も同じ処理を呼ぶ。</div></div>
+<div class="req"><div class="req-id">SAVE-002</div><div>入力原画像・入力三値画像を上書きしない。</div></div>
+<div class="req"><div class="req-id">SAVE-003</div><div>疑似色、原画像、格子、筆ポインタ、小領域警告を保存しない。内部ラベル配列から直接PNGを生成する。</div></div>
+<div class="req"><div class="req-id">SAVE-004</div><div>保存用ラベル配列は現在配列の複製から作成し、PNG生成直前に下端保護領域 <code>P</code> をすべて「無」へ再設定する。</div></div>
+<div class="req"><div class="req-id">SAVE-005</div><div>保存後の再読込検査では、寸法、8-bit RGB、アルファなし、三色制約、領域 <code>P</code> の全黒を必須とする。</div></div>
+<div class="req"><div class="req-id">SAVE-006</div><div>未変更状態でも保存できる。出力が存在しない場合は通常どおり新規作成し、変更不要画像の作業済み目印として「出力あり」にする。</div></div>
+<h3>12.2 原子的保存</h3>
+<ol>
+<li>対象出力に対する排他的な保存ロックを取得する。取得できなければ保存しない。</li>
+<li>外部変更を再検査する。</li>
+<li>現在配列を保存用配列へ複製し、下端100画素を「無」へ強制する。</li>
+<li>出力フォルダ内へ一時PNGを書き出す。</li>
+<li>一時PNGを再読込し、全出力条件を検証する。</li>
+<li>検証成功後、OSの置換操作で正式ファイルへ反映する。</li>
+<li>正式ファイルの内容ハッシュを取得し、現在配列を新しい基準配列として未保存状態を解除する。</li>
+<li>失敗時は既存出力へ触れず、一時ファイルを削除し、未保存状態を維持する。</li>
+</ol>
+<h3>12.3 内容ハッシュと外部変更</h3>
+<div class="req"><div class="req-id">SAVE-007</div><div>画像読込時に原画像、入力三値画像、編集元出力のSHA-256を記録する。出力が存在しない場合は「不存在」を基準状態として記録する。</div></div>
+<div class="req"><div class="req-id">SAVE-008</div><div>保存ロック取得後、正式書出し前に各ファイルを再検査する。出力の内容変更または新規出現を検出した場合、「外部版を開く」「現在内容で上書き」「中止」を提示し、初期選択を中止とする。</div></div>
+<div class="req"><div class="req-id">SAVE-009</div><div>原画像または入力三値画像の外部変更を検出した場合、「再読込して現在編集を破棄」「読込済みスナップショットを明示確認の上で保存」「中止」を提示し、初期選択を中止とする。</div></div>
+<div class="req"><div class="req-id">SAVE-010</div><div>更新時刻だけで競合を判定しない。ハッシュ検査と保存ロックを、検査から置換まで同じ排他区間で行う。</div></div>
+<h3>12.4 既存出力</h3>
+<ul>
+<li>編集済み画像を編集元として開いた場合、通常の保存で同じ出力を置換する。</li>
+<li>既存出力を無視して入力三値画像から開いた場合、最初の保存時に既存出力の上書きを確認する。</li>
+<li>保存候補と既存出力が内容上同一で競合がない場合、物理再書込みを省略してよい。</li>
+<li>一覧上の「出力あり」はファイル存在を示す。実際に開く際は入力条件を完全検査し、不正なら「出力不正」と表示する。</li>
+</ul>
+<h3>12.5 異常終了</h3>
+<p>初期版では未保存編集の自動復元を必須としない。異常終了時に未保存変更が失われ得ることを利用者向け説明へ明記する。正式出力と入力は原子的保存および排他制御で保護する。</p>
+</section>
+<section id="errors">
+<h2>13. 異常系と処理方針</h2>
+<h3>13.1 フォルダ・対応付け</h3>
+<table><thead><tr><th>事象</th><th>処理</th></tr></thead><tbody>
+<tr><td>指定フォルダが存在しない／読取不能</td><td>一覧生成を中止し、対象パスと原因を表示する。</td></tr>
+<tr><td>入力・出力が同一実体</td><td>ジャンクション等を含めて入力上書きの可能性があるため拒否する。</td></tr>
+<tr><td>出力フォルダを作成できない／書込不能</td><td>編集は閲覧用途で開始可能とするが保存を無効化し、権限回復後に再検査できるようにする。</td></tr>
+<tr><td>有効な画像対が0件</td><td>編集操作を無効化し、対象外理由一覧を表示する。</td></tr>
+<tr><td>対応相手なし／重複／短い幹名／想定外先頭</td><td>対象外一覧へ記録し、正常な画像対は利用可能とする。</td></tr>
+<tr><td>出力名衝突</td><td>衝突する画像対を対象外とする。</td></tr>
+<tr><td>対象外画像の前後移動</td><td>編集一覧へ含めず、自動的に飛ばす。</td></tr>
+</tbody></table>
+<h3>13.2 画像内容</h3>
+<table><thead><tr><th>事象</th><th>処理</th></tr></thead><tbody>
+<tr><td>画像破損／復号失敗</td><td>当該画像対だけを利用不能にし、一覧へエラー表示する。</td></tr>
+<tr><td>2048×1536以外／画像対寸法不一致</td><td>自動変換せず拒否する。</td></tr>
+<tr><td>三値以外の色</td><td>下端保護領域を含む全画像について編集開始を拒否し、代表色と画素数を表示する。</td></tr>
+<tr><td>原画像がアルファ、索引色、CMYK、16-bit等</td><td>初期版の入力条件外として拒否する。</td></tr>
+<tr><td>原画像のOrientationが2～8</td><td>自動回転せず、座標一致不能として拒否する。</td></tr>
+<tr><td>ICC色特性の変換失敗</td><td>無言で無視せず当該画像対を拒否し、原因を表示する。</td></tr>
+<tr><td>読込時の下端強制無化で差分発生</td><td>異常ではない。変更画素数を通知し、未保存状態とする。</td></tr>
+<tr><td>編集済み画像が不正</td><td>編集済み版として開かず、入力三値画像からの開始を許可する。</td></tr>
+</tbody></table>
+<h3>13.3 編集・表示</h3>
+<table><thead><tr><th>事象</th><th>処理</th></tr></thead><tbody>
+<tr><td>画像外／下端保護領域で画素変更</td><td>対象外として画素を変更せず、ポインタと状態欄で理由を示す。</td></tr>
+<tr><td>三値画像非表示中の画素変更・Undo・Redo</td><td>操作を無効化し、履歴と未保存内容は維持する。</td></tr>
+<tr><td>低倍率で筆径条件未達</td><td>描画せず、禁止表示と理由を示す。</td></tr>
+<tr><td>同色への筆・塗り潰し／境界対象0</td><td>変更せず、履歴も追加しない。</td></tr>
+<tr><td>筆描画中の別命令</td><td>Esc以外は発火・予約しない。Escは筆跡全体を取り消す。</td></tr>
+<tr><td>筆描画中のフォーカス・捕捉喪失</td><td>筆跡全体を押下前へ戻し、履歴へ追加しない。</td></tr>
+<tr><td>太さ・筆径・不透明度・倍率の範囲外</td><td>端値で停止し、無効値を保持しない。</td></tr>
+<tr><td>履歴上限到達</td><td>古い履歴から破棄するが、基準配列による未保存判定は維持する。</td></tr>
+<tr><td>解析中に画像が変更・移動</td><td>古い解析結果を破棄し、必要なら現状態で再計算する。</td></tr>
+</tbody></table>
+<h3>13.4 保存・外部競合・終了</h3>
+<table><thead><tr><th>事象</th><th>処理</th></tr></thead><tbody>
+<tr><td>ディスク容量不足／権限喪失／ファイルロック</td><td>保存失敗として通知し、既存出力と未保存状態を維持する。</td></tr>
+<tr><td>一時ファイル書出し・検証失敗</td><td>正式出力へ反映せず、一時ファイルを削除する。</td></tr>
+<tr><td>出力が外部変更・新規出現</td><td>外部版を開く、明示上書き、中止を提示し、初期選択を中止とする。</td></tr>
+<tr><td>入力原画像・三値画像が外部変更</td><td>再読込、読込済みスナップショットで明示保存、中止を提示する。</td></tr>
+<tr><td>同じ出力を別起動が保存中</td><td>排他ロック取得失敗として保存せず、再試行可能にする。</td></tr>
+<tr><td>未保存で移動・終了</td><td>保存、破棄、中止を提示する。</td></tr>
+<tr><td>保存中に終了要求</td><td>保存結果が確定するまで終了を保留する。</td></tr>
+<tr><td>異常終了</td><td>未保存変更は失われ得る。入力・既存出力は破壊しない。</td></tr>
+</tbody></table>
+<h3>13.5 設定・操作割当</h3>
+<table><thead><tr><th>事象</th><th>処理</th></tr></thead><tbody>
+<tr><td>入力待機中に予約済み・取得不能キー</td><td>割当を変更せず、理由を表示して待機を継続する。Escは取消。</td></tr>
+<tr><td>既存割当と競合</td><td>既存側から移すか今回の変更を取り消すか選択させる。</td></tr>
+<tr><td>入力待機中に非アクティブ化</td><td>待機を取り消し、変更前の割当を維持する。</td></tr>
+<tr><td>設定保存失敗</td><td>直前に適用済みの設定を維持し、今回変更が永続化されなかったことを通知する。</td></tr>
+<tr><td>設定値が欠落・破損・旧版</td><td>既知項目を読み、欠落を既定値で補完する。解釈不能項目だけを既定へ戻して起動を継続する。</td></tr>
+<tr><td>疑似色が同一または近似</td><td>色差警告を表示するが、利用者の明示確認後は適用を許可する。</td></tr>
+<tr><td>全キー割当を解除</td><td>許可する。全機能へメニュー・ボタン等から到達可能でなければならない。</td></tr>
+</tbody></table>
+</section>
+<section id="nonfunctional">
+<h2>14. 非機能要件</h2>
+<h3>14.1 動作環境</h3>
+<ul>
+<li>Windows 10 / 11 64-bit</li><li>Python 3.11.x</li><li>オフラインで全機能を利用可能</li>
+<li>日本語・丸数字を含むUnicodeパスに対応</li><li>Windows表示倍率100～200％および異なるDPIの複数モニターで座標精度を維持</li>
+</ul>
+<h3>14.2 データ完全性</h3>
+<ul>
+<li>原画像と入力三値画像へ書込みを行わない。</li>
+<li>保存前後に三色制約、寸法、下端100画素の全黒制約を検証する。</li>
+<li>表示画像を保存元に用いない。</li>
+<li>例外発生時も正式出力を半端な状態へ置換しない。</li>
+<li>外部変更はSHA-256で検査し、出力置換区間は排他ロックで保護する。</li>
+<li>内部ラベル配列に対する画素変更処理の終了時、下端保護領域が全て値0であることを表明検査できる構成とする。</li>
+</ul>
+<h3>14.3 性能目標</h3>
+<p class="small">Windows 11、4物理コア以上、16GB RAM、SSDの一般的な業務PCを基準とする。</p>
+<table><thead><tr><th>操作</th><th>目標</th></tr></thead><tbody>
+<tr><td>画像対読込・初期表示</td><td>2秒以内</td></tr>
+<tr><td>筆追従</td><td>入力から画面反映まで50ms以内を目標</td></tr>
+<tr><td>塗り潰し・境界生成・小領域解析</td><td>通常3秒以内。処理中もウィンドウを応答不能にしない。</td></tr>
+<tr><td>保存</td><td>ハッシュ再検査・再読込検証を含め3秒以内を目標</td></tr>
+<tr><td>常用メモリ</td><td>現在画像・表示・履歴を含め1GiB未満を目標</td></tr>
+<tr><td>画像集合</td><td>画像画素を全件先読みせず、現在画像と必要な近傍だけを保持する。件数増加に伴う主メモリ使用は原則としてメタデータ量に限定する。</td></tr>
+</tbody></table>
+<h3>14.4 原子性・応答性</h3>
+<ul><li>塗り潰し、境界生成、保存は作業用配列または一時ファイルで完了後に一括反映する。</li><li>初期版では長時間処理の途中取消を必須としないが、ウィンドウの再描画と処理中表示を継続する。</li><li>古い非同期結果を画像改訂番号で破棄する。</li></ul>
+</section>
+<section id="shortcuts">
+<h2>15. 設定・操作割当</h2>
+<h3>15.1 設定画面の構成</h3>
+<div class="req"><div class="req-id">SET-001</div><div>設定画面は少なくとも「一般・表示」「操作割当」の二頁を持つ。ダイアログ内のOK、取消、色選択等の局所UI操作は操作割当対象にしない。</div></div>
+<div class="req"><div class="req-id">SET-002</div><div>変更は画面内の作業値として保持し、「適用」で検証・即時反映・永続化、「OK」で同処理後に閉じ、「取消」で画面を開いた時点以降の未適用変更を破棄する。</div></div>
+<div class="req"><div class="req-id">SET-003</div><div>設定変更は画像データ、基準配列、未保存状態、Undo・Redo履歴へ影響させない。</div></div>
+<h3 id="settings-persistence">15.2 初期値・永続化範囲</h3>
+<table><thead><tr><th>項目</th><th>初回既定値</th><th>再起動後</th></tr></thead><tbody>
+<tr><td>入出力フォルダ</td><td>未指定</td><td>保持。三フォルダが有効なら起動時に自動再走査し、失敗時は非モーダル警告。</td></tr>
+<tr><td>ウィンドウ位置・寸法</td><td>OS既定</td><td>保持。ただし画面外に出る場合は可視範囲へ補正。</td></tr>
+<tr><td>原画像／三値画像表示</td><td>両方ON</td><td>保持</td></tr>
+<tr><td>疑似色</td><td>OFF、7.4の三色</td><td>ON/OFFと色を保持</td></tr>
+<tr><td>原画像不透明度</td><td>50％</td><td>保持</td></tr>
+<tr><td>画素格子</td><td>自動表示ON</td><td>保持</td></tr>
+<tr><td>小領域強調</td><td>OFF</td><td>保持</td></tr>
+<tr><td>編集道具</td><td>筆</td><td>保持</td></tr>
+<tr><td>筆形状・筆径</td><td>円形・5px</td><td>保持</td></tr>
+<tr><td>選択ラベル</td><td>有</td><td>保持しない。起動ごとに有。</td></tr>
+<tr><td>境界モード・太さ</td><td>無側・1px</td><td>保持</td></tr>
+<tr><td>表示倍率・中心・現在画像</td><td>最初の有効画像を全体表示</td><td>保持しない。起動ごとに全体表示。</td></tr>
+<tr><td>キー割当</td><td>15.7の値</td><td>保持</td></tr>
+</tbody></table>
+<div class="req"><div class="req-id">SET-004</div><div>設定をWindows利用者単位で保存し、画像フォルダごとには分けない。スキーマ版を持ち、未知項目を無視し、欠落項目を既定値で補う。</div></div>
+<h3>15.3 疑似色設定</h3>
+<div class="req"><div class="req-id">SET-005</div><div>無・有・境界それぞれについて色選択部品と <code>#RRGGBB</code> 直接入力を用意する。アルファ値は設定できない。</div></div>
+<div class="req"><div class="req-id">SET-006</div><div>各色を個別または三色まとめて既定値へ戻せること。</div></div>
+<div class="req"><div class="req-id">SET-007</div><div>任意二色のsRGBユークリッド距離が64未満の場合は識別性警告を表示する。警告は適用を禁止せず、利用者の明示確認後に保存を許可する。</div></div>
+<pre>distance = sqrt((R1-R2)² + (G1-G2)² + (B1-B2)²)</pre>
+<h3>15.4 Action Registry・操作型</h3>
+<div class="req"><div class="req-id">KEY-001</div><div>主画面のAction Registryへ登録されたアプリケーション命令に不変の操作IDを与え、設定画面からキー割当を変更できること。ダイアログ内の局所操作、一覧選択、数値欄への直接入力、物理マウスジェスチャーは対象外とする。</div></div>
+<div class="req"><div class="req-id">KEY-002</div><div>各操作は主割当と副割当の最大二つを保持でき、両方を未割当にすることも許可する。</div></div>
+<div class="req"><div class="req-id">KEY-003</div><div>割当は本アプリ内だけで有効とし、OS全体へ作用する大域ショートカットにしない。</div></div>
+<div class="req"><div class="req-id">KEY-004</div><div>編集可能な文字・数値欄へ入力中は単修飾の文字・数字・記号割当を発火させない。標準編集キーとの衝突は文脈で抑止する。</div></div>
+<div class="callout"><strong>固定入力：</strong>マウスホイール上下によるズーム、中ボタンドラッグによるパン、左ボタンによる道具操作、Escによる進行中操作取消は初期版で固定する。同機能を実行する主画面命令のキー割当は変更できる。</div>
+<h3 id="key-capture">15.5 キー入力待機状態</h3>
+<div class="req"><div class="req-id">KEY-005</div><div>操作割当頁にカテゴリ、操作名、操作ID、操作型、主割当、副割当を一覧表示し、操作名またはIDで絞り込めること。</div></div>
+<div class="req"><div class="req-id">KEY-006</div><div>割当欄の「変更」またはダブルクリックで、その欄だけを入力待機状態へ移す。</div></div>
+<div class="req"><div class="req-id">KEY-007</div><div>個別解除、操作単位の既定復元、全体既定復元を用意し、全体復元は確認後に行う。</div></div>
+<div class="req"><div class="req-id">KEY-008</div><div>操作割当頁の変更は作業値として保持し、設定画面共通の「適用」「OK」「取消」規則に従う。適用前の作業値を実行中の割当へ混入させない。</div></div>
+<div class="req"><div class="req-id">KEY-009</div><div>キー割当の変更、解除、既定復元は画像データ、基準配列、未保存状態、Undo・Redo履歴へ一切影響させない。</div></div>
+<div class="req"><div class="req-id">KEY-010</div><div>待機開始後、最初に成立した有効なキー組合せを候補として取得する。開始前から押されていたキーは解放まで無視する。</div></div>
+<div class="req"><div class="req-id">KEY-011</div><div>Ctrl、Alt、Shift単独では確定せず、主キーの最初のKeyDownで一度だけ取得する。自動反復とKeyUpは候補を増やさない。</div></div>
+<div class="req"><div class="req-id">KEY-012</div><div>入力待機中は通常のショートカット、メニュー命令、キャンバス編集を発火させず、入力を候補取得だけに消費する。</div></div>
+<div class="req"><div class="req-id">KEY-013</div><div>Escは待機取消専用とし、割当解除は専用操作で行う。</div></div>
+<div class="req"><div class="req-id">KEY-014</div><div>設定画面を閉じる、別欄を選ぶ、アプリが非アクティブになる場合は現在の待機を取り消す。</div></div>
+<div class="req"><div class="req-id">KEY-015</div><div>日本語入力方式による文字変換前のキーイベントから、論理キーと修飾キーを取得する。物理走査符号へは紐付けない。保存はQt PortableText相当、表示はNativeText相当とする。</div></div>
+<div class="req"><div class="req-id">KEY-016</div><div>一段の同時キー組合せだけを扱い、複数段シーケンスは扱わない。</div></div>
+<h3>15.6 禁止入力・競合・自動反復</h3>
+<ul>
+<li>修飾キー単独、Esc、Tab、Shift+Tabは割当不可。</li>
+<li>Alt+F4、Ctrl+Alt+Delete、Windowsキーを含むOS予約入力等は割当不可。</li>
+<li>通常文字、数字、記号、ファンクションキー、方向キー、PageUp、PageDown、Space、Enter等は予約に該当しない限り割当可能。</li>
+</ul>
+<div class="req"><div class="req-id">KEY-017</div><div>同一キー組合せを複数操作へ同時登録しない。競合時は「既存操作から移す」または「今回変更を取り消す」を提示する。</div></div>
+<div class="req"><div class="req-id">KEY-018</div><div>同じ操作の主・副へ同一キーを登録せず、既存側を維持して通知する。</div></div>
+<div class="req"><div class="req-id">KEY-019</div><div>競合確認中も現在有効な設定を変えず、確定した作業値だけを適用時に一括反映する。</div></div>
+<div class="req"><div class="req-id">KEY-020</div><div>適用済みの主・副割当をWindows利用者単位で保存し、次回起動時に復元する。画像フォルダごとには分けない。</div></div>
+<div class="req"><div class="req-id">KEY-021</div><div>設定にはスキーマ版と操作IDを保存する。新しい操作IDは既定値で補完し、廃止済みの未知IDは無視する。</div></div>
+<div class="req"><div class="req-id">KEY-022</div><div>設定画面を開く操作が未割当でも、アプリケーションのメニューおよび常設設定ボタンから設定画面を開けること。</div></div>
+<div class="req"><div class="req-id">KEY-023</div><div>「刻み」操作はOSのキー自動反復を許可し、一KeyDownにつき一段だけ変更する。「単発」操作は初回KeyDownだけを受け付け、自動反復を無視する。「保持」操作は押下中だけ有効とし、反復KeyDownを無視して主キー解放で解除する。</div></div>
+
+<h3 id="operation-list">15.7 操作一覧と既定割当</h3>
+<p>本文中のキー表記はすべて既定割当であり、確定後は現在の割当を規範とする。「なし」の操作にも任意キーを設定できる。</p>
+<table>
+<thead><tr><th>カテゴリ</th><th>操作</th><th>操作ID</th><th>型・一回分</th><th>主割当</th><th>副割当</th></tr></thead>
+<tbody>
+<tr><td>ファイル</td><td>入出力フォルダ設定</td><td><code>file.configure-folders</code></td><td>単発</td><td><code>Ctrl+O</code></td><td>なし</td></tr>
+<tr><td>ファイル</td><td>現在フォルダを再走査</td><td><code>file.rescan-folders</code></td><td>単発</td><td><code>F5</code></td><td>なし</td></tr>
+<tr><td>ファイル</td><td>保存</td><td><code>file.save</code></td><td>単発</td><td><code>Ctrl+S</code></td><td>なし</td></tr>
+<tr><td>アプリ</td><td>設定を開く</td><td><code>app.open-settings</code></td><td>単発</td><td><code>Ctrl+,</code></td><td>なし</td></tr>
+<tr><td>アプリ</td><td>終了</td><td><code>app.exit</code></td><td>単発</td><td>なし</td><td>なし</td></tr>
+<tr><td>履歴</td><td>Undo</td><td><code>edit.undo</code></td><td>単発</td><td><code>Ctrl+Z</code></td><td>なし</td></tr>
+<tr><td>履歴</td><td>Redo</td><td><code>edit.redo</code></td><td>単発</td><td><code>Ctrl+Y</code></td><td><code>Ctrl+Shift+Z</code></td></tr>
+<tr><td>画像移動</td><td>前画像</td><td><code>navigate.previous-image</code></td><td>単発</td><td><code>PageUp</code></td><td>なし</td></tr>
+<tr><td>画像移動</td><td>次画像</td><td><code>navigate.next-image</code></td><td>単発</td><td><code>PageDown</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>筆を選択</td><td><code>tool.brush</code></td><td>単発</td><td><code>B</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>塗り潰しを選択</td><td><code>tool.fill</code></td><td>単発</td><td><code>F</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>無を選択</td><td><code>label.select-none</code></td><td>単発</td><td><code>1</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>有を選択</td><td><code>label.select-present</code></td><td>単発</td><td><code>2</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>境界を選択</td><td><code>label.select-boundary</code></td><td>単発</td><td><code>3</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>選択色を順方向に循環</td><td><code>label.cycle-forward</code></td><td>単発・一段</td><td><code>C</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>選択色を逆方向に循環</td><td><code>label.cycle-backward</code></td><td>単発・一段</td><td><code>Shift+C</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>筆径を縮小</td><td><code>brush.decrease-size</code></td><td>刻み・-1px</td><td><code>[</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>筆径を拡大</td><td><code>brush.increase-size</code></td><td>刻み・+1px</td><td><code>]</code></td><td>なし</td></tr>
+<tr><td>編集</td><td>筆形状を円形</td><td><code>brush.shape-circle</code></td><td>単発</td><td>なし</td><td>なし</td></tr>
+<tr><td>編集</td><td>筆形状を正方形</td><td><code>brush.shape-square</code></td><td>単発</td><td>なし</td><td>なし</td></tr>
+<tr><td>編集</td><td>筆形状を切り替える</td><td><code>brush.cycle-shape</code></td><td>単発・一段</td><td><code>X</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>原画像表示を切り替える</td><td><code>view.toggle-original</code></td><td>単発</td><td><code>O</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>三値画像表示を切り替える</td><td><code>view.toggle-label</code></td><td>単発</td><td><code>T</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>疑似色表示を切り替える</td><td><code>view.toggle-pseudocolor</code></td><td>単発</td><td><code>P</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>画素格子自動表示を切り替える</td><td><code>view.toggle-grid-auto</code></td><td>単発</td><td><code>G</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>小領域強調を切り替える</td><td><code>view.toggle-small-components</code></td><td>単発</td><td><code>L</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>原画像不透明度を下げる</td><td><code>view.decrease-original-opacity</code></td><td>刻み・-5pt</td><td>なし</td><td>なし</td></tr>
+<tr><td>表示</td><td>原画像不透明度を上げる</td><td><code>view.increase-original-opacity</code></td><td>刻み・+5pt</td><td>なし</td><td>なし</td></tr>
+<tr><td>表示</td><td>縮小</td><td><code>view.zoom-out</code></td><td>刻み・÷1.25</td><td><code>Ctrl+-</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>拡大</td><td><code>view.zoom-in</code></td><td>刻み・×1.25</td><td><code>Ctrl++</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>100％表示</td><td><code>view.zoom-100</code></td><td>単発</td><td><code>Ctrl+1</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>全体表示</td><td><code>view.fit-image</code></td><td>単発</td><td><code>Ctrl+0</code></td><td>なし</td></tr>
+<tr><td>表示</td><td>一時パン操作</td><td><code>view.temporary-pan</code></td><td>保持</td><td><code>Space</code></td><td>なし</td></tr>
+<tr><td>境界生成</td><td>無側生成を選択</td><td><code>boundary.select-none-side</code></td><td>単発</td><td><code>Alt+1</code></td><td>なし</td></tr>
+<tr><td>境界生成</td><td>非無側生成を選択</td><td><code>boundary.select-non-none-side</code></td><td>単発</td><td><code>Alt+2</code></td><td>なし</td></tr>
+<tr><td>境界生成</td><td>境界太さを減らす</td><td><code>boundary.decrease-thickness</code></td><td>刻み・-1px</td><td>なし</td><td>なし</td></tr>
+<tr><td>境界生成</td><td>境界太さを増やす</td><td><code>boundary.increase-thickness</code></td><td>刻み・+1px</td><td>なし</td><td>なし</td></tr>
+<tr><td>境界生成</td><td>選択中モードで生成</td><td><code>boundary.generate</code></td><td>単発</td><td><code>Ctrl+Shift+B</code></td><td>なし</td></tr>
+</tbody></table>
+</section>
+<section id="acceptance">
+<h2>16. 受入試験</h2>
+<table>
+<thead><tr><th>ID</th><th>試験内容</th><th>合格条件</th></tr></thead>
+<tbody>
+<tr><td>AT-001</td><td>①／001、②／002と末尾27文字による対応付け</td><td>正しい組だけが生成され、並び位置だけで誤対応しない。</td></tr>
+<tr><td>AT-002</td><td>重複・欠落・短い幹名</td><td>無言で採用せず、対象外理由が表示される。</td></tr>
+<tr><td>AT-003</td><td>寸法不一致</td><td>自動拡縮せず画像対を拒否する。</td></tr>
+<tr><td>AT-004</td><td>三値以外の入力</td><td>異常色と画素数を示して編集開始を拒否する。</td></tr>
+<tr><td>AT-005</td><td>GIMP互換表示・合成順</td><td>100％表示で、原解像度上の本書数式による期待値と各RGB成分±1以内で一致する。レイヤ別縮小後の合成にならない。</td></tr>
+<tr><td>AT-006</td><td>原画像不透明度0％／100％</td><td>0％で三値のみ、100％で成分最大値合成になる。</td></tr>
+<tr><td>AT-007</td><td>疑似色表示</td><td>表示だけが変わり、内部ラベルと保存画像は変化しない。</td></tr>
+<tr><td>AT-008</td><td>ポインタ中心拡大</td><td>連続ズーム後もポインタ直下の画像座標が許容誤差1画面画素以内で維持される。</td></tr>
+<tr><td>AT-009</td><td>画素格子自動表示</td><td>自動ONでは一画素8実画面画素以上だけ表示し、自動OFFでは倍率にかかわらず表示しない。</td></tr>
+<tr><td>AT-010</td><td>低倍率筆制限</td><td>画面上筆径4画素未満では編集されず、4画素以上で編集できる。</td></tr>
+<tr><td>AT-011</td><td>高速筆描画</td><td>ドラッグ経路に意図しない空隙が生じない。</td></tr>
+<tr><td>AT-012</td><td>塗り潰し四近傍</td><td>斜め接触だけの同色領域は同時に塗られない。</td></tr>
+<tr><td>AT-013</td><td>筆・塗り潰しUndo</td><td>一操作をUndo一回で完全に戻し、Redoで再現できる。</td></tr>
+<tr><td>AT-014</td><td>無側生成・太さ1</td><td>「無」と「有」の直接接触で、無側一画素だけが境界になる。</td></tr>
+<tr><td>AT-015</td><td>無側生成・既存境界</td><td>「無－境界－有」の箇所は変更されない。</td></tr>
+<tr><td>AT-016</td><td>無側生成・太さN</td><td>接触種から無領域内四近傍距離N-1までだけが境界になる。</td></tr>
+<tr><td>AT-017</td><td>非無側生成・太さ1</td><td>「無－有」で有側一画素が境界になり、無は変化しない。</td></tr>
+<tr><td>AT-018</td><td>非無側生成・既存境界</td><td>太さ1で追加変化せず、太さ2で既存境界奥の有一画素が境界になる。</td></tr>
+<tr><td>AT-019</td><td>斜め接触</td><td>両境界生成モードとも太さ1では斜め接触だけを変更しない。</td></tr>
+<tr><td>AT-020</td><td>境界生成Undo・Redo</td><td>処理全体を一回で戻し、同一結果を再現する。</td></tr>
+<tr><td>AT-021</td><td>小領域・八近傍</td><td>斜め連結を同一成分として数える。</td></tr>
+<tr><td>AT-022</td><td>小領域・色分離</td><td>有と境界を別成分として数え、1～50画素だけを強調する。</td></tr>
+<tr><td>AT-023</td><td>小領域表示保存除外</td><td>強調表示が出力PNGへ混入しない。</td></tr>
+<tr><td>AT-024</td><td>未保存で画像移動</td><td>保存・破棄・中止が提示され、選択どおりに動作する。</td></tr>
+<tr><td>AT-025</td><td>既存出力への遷移</td><td>編集済み版・入力版・中止を選択できる。</td></tr>
+<tr><td>AT-026</td><td>保存画像検証</td><td>2048×1536、8-bit RGB PNG、三色のみ、アルファなしである。</td></tr>
+<tr><td>AT-027</td><td>保存失敗</td><td>既存出力を壊さず、未保存状態を維持する。</td></tr>
+<tr><td>AT-028</td><td>原画像非変更</td><td>編集・保存前後で原画像の内容ハッシュが一致する。</td></tr>
+<tr><td>AT-029</td><td>入力三値画像非変更</td><td>編集・保存前後で入力三値画像の内容ハッシュが一致する。</td></tr>
+<tr><td>AT-030</td><td>高DPI座標</td><td>Windows表示倍率100％、125％、150％、200％で同じ画像画素を正しく編集できる。</td></tr>
+<tr><td>AT-031</td><td>画像外余白・端部パン</td><td>任意倍率で画像の上下左右各辺および四隅をキャンバス中央へ許容誤差1論理画素以内で移動でき、画像を完全に表示範囲外へ失わない。</td></tr>
+<tr><td>AT-032</td><td>画像外編集防止</td><td>画像外で筆・塗り潰しを操作してもラベル配列が変化せず、画像内から外へ跨ぐ筆描画は画像境界で正しく切り詰められる。</td></tr>
+<tr><td>AT-033</td><td>全体表示時の余白</td><td>キャンバス寸法が許す場合、全体表示で画像が中央配置され、上下左右に各32論理画素以上の余白が表示される。</td></tr>
+<tr><td>AT-034</td><td>読込時の下端強制無化・差分あり</td><td>三色制約を満たす入力の <code>y=1436～1535</code> に有または境界を含めて開くと、内部配列と三値表示が全て無へ変わり、変更画素数が表示され、未保存状態となる。Undo履歴は追加されない。</td></tr>
+<tr><td>AT-035</td><td>読込時の下端強制無化・差分なし</td><td>入力の下端100画素が既に全て無の場合、読込後も未変更状態となり、自動処理だけを理由とする保存確認は発生しない。</td></tr>
+<tr><td>AT-036</td><td>下端保護領域</td><td>筆、塗り潰し、無側境界生成その他の画素変更操作を領域内または領域を跨いで実行しても、<code>y=1436～1535</code> は全て値0を維持する。非無側境界生成は保護領域を無の基準にできるが、書換えは上側だけに生じる。</td></tr>
+<tr><td>AT-037</td><td>保存時の下端強制無化</td><td>試験用に保存直前配列の下端100画素へ非0値を混入させても、出力PNGでは同領域が全て <code>#000000</code> となる。再読込検査が不合格の場合は既存出力を置換しない。</td></tr>
+<tr><td>AT-038</td><td>操作一覧の適用範囲</td><td>主画面Action Registryの全命令が不変ID付きで一度ずつ表示され、ダイアログ局所操作と物理マウスジェスチャーは含まれない。</td></tr>
+<tr><td>AT-039</td><td>単一キーの入力待機取得</td><td>割当欄を入力待機にして<code>K</code>を押すと、通常のK操作を発火せず候補<code>K</code>だけを取得する。</td></tr>
+<tr><td>AT-040</td><td>修飾キー組合せの取得</td><td><code>Ctrl+Shift+K</code>を押すと一つの組合せとして取得し、修飾キーだけでは確定しない。</td></tr>
+<tr><td>AT-041</td><td>待機開始前の押下除外・自動反復</td><td>待機開始時から押されているキーを解放するまで取得せず、長押しによる自動反復でも一度だけ候補化する。</td></tr>
+<tr><td>AT-042</td><td>入力待機の取消</td><td><code>Esc</code>、画面非アクティブ化、別欄選択の各操作で待機が解除され、変更前の割当を維持する。</td></tr>
+<tr><td>AT-043</td><td>予約入力の拒否</td><td>修飾キー単独、<code>Tab</code>、<code>Alt+F4</code>等を割り当てず、理由を表示して安全に待機または取消できる。</td></tr>
+<tr><td>AT-044</td><td>割当競合</td><td>既存操作と同じキーを候補化した際に競合元を表示し、移動を選ぶと旧割当だけが解除され、取消では双方とも変化しない。</td></tr>
+<tr><td>AT-045</td><td>主・副割当</td><td>一操作へ異なる二つのキーを登録して双方から実行でき、同一キーの二重登録は作られない。</td></tr>
+<tr><td>AT-046</td><td>適用・キャンセル</td><td>適用前の作業値は実行割当へ影響せず、「適用」で有効化・保存され、「キャンセル」で開画面時点へ戻る。</td></tr>
+<tr><td>AT-047</td><td>永続化と版差分</td><td>再起動後に割当が復元され、未知IDを無視し、欠落した新規操作だけ既定値で補完する。</td></tr>
+<tr><td>AT-048</td><td>割当解除・既定復元</td><td>個別解除、個別既定復元、全体既定復元が指定どおりに動作し、画像の未保存状態と履歴を変更しない。</td></tr>
+<tr><td>AT-049</td><td>設定画面への到達保証</td><td>設定を開くキーを含む全割当を解除しても、メニューまたは常設ボタンから設定画面へ到達でき、主画面上の各操作もGUIから実行できる。</td></tr>
+<tr><td>AT-050</td><td>論理キー・日本語入力方式</td><td>日本語入力方式ON/OFFで論理キー取得結果が変わらず、物理走査符号ではなくPortableText相当で保存し、現在のWindowsキーボード配列に応じたNativeText相当で表示する。</td></tr>
+<tr><td>AT-051</td><td>選択色の順方向循環</td><td>任意の開始色から循環操作を繰り返すと、<code>無 → 有 → 境界 → 無</code>の順に一入力一段で切り替わり、三回で開始色へ戻る。</td></tr>
+<tr><td>AT-052</td><td>選択色の逆方向循環</td><td>任意の開始色から逆循環操作を繰り返すと、<code>無 → 境界 → 有 → 無</code>の順に切り替わり、三回で開始色へ戻る。</td></tr>
+<tr><td>AT-053</td><td>循環と疑似色の独立</td><td>三つの疑似色を任意に変更しても循環順序が変わらず、編集欄と状態欄には意味名および保存色が正しく表示される。</td></tr>
+<tr><td>AT-054</td><td>色切替の非編集性と状態維持</td><td>直接選択・順循環・逆循環のいずれもラベル配列、未保存状態、Undo・Redo履歴、選択中の道具を変更せず、前後画像へ移動しても同一起動中の選択色を維持する。</td></tr>
+<tr><td>AT-055</td><td>色循環の割当と描画中排他</td><td><code>label.cycle-forward</code>と<code>label.cycle-backward</code>を設定画面で任意キーへ変更・永続化できる。筆押下中は色切替が発火せず、筆跡全体が押下時の一色だけで描かれる。</td></tr>
+<tr><td>AT-056</td><td>色循環の操作経路一致</td><td>編集メニュー、画面上の前後循環ボタンを実装した場合の当該ボタン、および割当キーから同じ操作を実行したとき、選択色、状態欄、筆ポインタが同一結果となり、いずれの経路も画像画素を変更しない。</td></tr>
+<tr><td>AT-057</td><td>既定キーと変更後キー</td><td>保存を任意キーへ変更・適用すると新割当だけで実行でき、本文記載のCtrl+Sは既定値に過ぎず固定入力として残らない。</td></tr>
+<tr><td>AT-058</td><td>操作一回分と上下限</td><td>筆径±1px、境界太さ±1px、不透明度±5pt、倍率×／÷1.25で変化し、各範囲端で停止する。</td></tr>
+<tr><td>AT-059</td><td>キー自動反復</td><td>刻み操作は反復KeyDownごとに一段進み、保存・画像移動・色循環・境界生成等の単発操作は長押ししても一度だけ実行され、保持操作は解放まで有効になる。</td></tr>
+<tr><td>AT-060</td><td>初回既定値</td><td>初期設定削除後の起動で、両画像表示、疑似色OFF、不透明度50％、格子自動ON、筆・円形・5px、有、無側・1px、全体表示となる。</td></tr>
+<tr><td>AT-061</td><td>設定永続化範囲</td><td>保持対象は再起動後に復元され、選択ラベル、倍率、中心、現在画像は復元されず規定初期値になる。</td></tr>
+<tr><td>AT-062</td><td>設定の適用・取消</td><td>適用で即時反映・保存、OKで反映後に閉じ、取消で未適用変更だけを破棄し、画像の未保存状態を変えない。</td></tr>
+<tr><td>AT-063</td><td>疑似色設定</td><td>#RRGGBB入力と色選択が一致し、アルファを設定できず、色差64未満では警告し、明示確認後は適用でき、既定復元と再起動後復元が動作する。</td></tr>
+<tr><td>AT-064</td><td>原画像入力条件・色管理</td><td>8-bit RGB/Lを受理し、ICC付き画像をsRGB表示へ変換する。アルファ、索引色、CMYK、16-bit、Orientation 2～8を拒否し、原ファイルを変更しない。</td></tr>
+<tr><td>AT-065</td><td>三値非表示時の編集禁止</td><td>三値を隠すと筆・塗り潰し・境界生成・Undo・Redoが無効になり、小領域・筆範囲が隠れ、再表示後に履歴と未保存内容が維持される。</td></tr>
+<tr><td>AT-066</td><td>変更なし保存</td><td>未変更かつ出力なしの画像で保存すると正規化済みPNGが作成され「出力あり」になる。既存同一出力では再書込みを省略できる。</td></tr>
+<tr><td>AT-067</td><td>内容比較による未保存判定</td><td>編集後に画素内容を基準配列と完全同一へ戻すと未保存表示が解除され、履歴位置が異なっていても保存確認が発生しない。</td></tr>
+<tr><td>AT-068</td><td>履歴破棄後の未保存判定</td><td>履歴上限で保存位置を含む古い履歴が破棄されても、基準配列との差分に従って未保存状態が正しく維持・解除される。</td></tr>
+<tr><td>AT-069</td><td>外部出力変更・新規出現</td><td>読込後に出力を別内容へ変更または新規作成すると保存前SHA-256検査で検出し、外部版・上書き・中止を提示して初期選択が中止になる。</td></tr>
+<tr><td>AT-070</td><td>多重起動保存ロック</td><td>別プロセスが同じ出力の保存ロックを保持中は保存せず、既存出力と未保存内容を維持する。</td></tr>
+<tr><td>AT-071</td><td>筆描画の原子性と取消</td><td>描画中の他命令は発火・予約されず、Esc・非アクティブ化・捕捉喪失で筆跡全体が戻り、正常解放では一履歴単位として確定する。</td></tr>
+<tr><td>AT-072</td><td>偶数径筆マスク</td><td>円形・正方形の偶数径で仕様どおり+x/+y側へ余剰画素が配され、ポインタ表示と実変更画素が完全一致する。</td></tr>
+<tr><td>AT-073</td><td>ウィンドウ寸法変更</td><td>全体表示中は再フィットし、手動倍率中は倍率と中心画像座標を維持してパン範囲だけ再制限する。</td></tr>
+<tr><td>AT-074</td><td>モニターDPI変更</td><td>異なるDPIモニターへ移動しても中心画像座標が維持され、格子閾値、低倍率筆判定、画素選択が新しい機器画素比で正しく再計算される。</td></tr>
+<tr><td>AT-075</td><td>Unicode対応キー</td><td>NFC正規化後の末尾27コードポイントと群番号を大文字小文字区別で比較し、合成文字表現だけが異なる同値名は対応し、大小文字だけが違う名は対応しない。</td></tr>
+<tr><td>AT-076</td><td>対象外画像の移動</td><td>対象外画像はエラー一覧に残るが編集一覧には入らず、前後移動が有効画像対だけを自然順に辿る。</td></tr>
+<tr><td>AT-077</td><td>画素格子設定の意味</td><td>G操作は格子の自動表示ON/OFFだけを切り替え、低倍率での強制常時表示状態を生成しない。</td></tr>
+<tr><td>AT-078</td><td>固定マウス操作と保持パン</td><td>ホイール、中央ドラッグ、左道具操作、Esc取消は固定動作を保ち、一時パンの割当キーだけを変更でき、キー解放で元の道具へ戻る。</td></tr>
+<tr><td>AT-079</td><td>出力ありと確認状態</td><td>一覧は出力ファイル存在を表示し、保存していない「確認済み」状態を別途生成しない。変更不要画像は明示保存により出力ありへ移行する。</td></tr>
+</tbody>
+</table>
+</section>
+<section id="architecture">
+<h2>17. 推奨実装構成 <span class="badge note-badge">参考設計</span></h2>
+<table><thead><tr><th>領域</th><th>推奨</th></tr></thead><tbody>
+<tr><td>GUI</td><td>PySide6。画像キャンバスはQGraphicsViewまたは専用QWidget。</td></tr>
+<tr><td>原画像復号</td><td>Pillow＋ImageCms。8-bit L/RGBだけを受理し、ICCがあればsRGBへ表示変換。Orientation 2～8は拒否。</td></tr>
+<tr><td>三値内部表現</td><td>NumPy <code>uint8[1536,2048]</code>、値0/1/2。<code>labels[1436:1536,:]</code> を共通保護マスクで管理。</td></tr>
+<tr><td>基準・未保存</td><td>基準配列を保持し、改訂時に高速ハッシュを更新。ハッシュ一致時は必要に応じて <code>numpy.array_equal</code> で確定する。</td></tr>
+<tr><td>画素処理</td><td>NumPy＋OpenCVまたはSciPy。連結成分、距離、膨張は作業配列で計算後に一括反映。</td></tr>
+<tr><td>筆トランザクション</td><td>押下時の設定と変更前差分を保持し、正常解放で確定、Esc・捕捉喪失で全差分を復元。</td></tr>
+<tr><td>Undo</td><td>変更矩形または変更画素のbefore/after差分を命令単位で保持。基準配列とは独立。</td></tr>
+<tr><td>表示</td><td>原解像度上で合成してDisplayNativeを作成し、完成像を倍率へ拡縮。保存データ、表示像、オーバーレイを分離。</td></tr>
+<tr><td>非同期処理</td><td>QThreadPool等を用い、画像改訂番号で古い小領域結果を破棄。</td></tr>
+<tr><td>保存・競合</td><td>SHA-256、対象出力単位の排他ロック、一時PNG、再検査、<code>os.replace</code>。ロック取得後にハッシュを再確認。</td></tr>
+<tr><td>操作管理</td><td>操作ID、操作型、刻み量、自動反復可否、主副割当をAction Registryへ一元化。ボタン、メニュー、キーが同じ命令を参照。</td></tr>
+<tr><td>キー取得</td><td>QKeyEventから論理キー＋修飾キーを取得。PortableTextで保存、NativeTextで表示。走査符号は使用しない。</td></tr>
+<tr><td>設定</td><td>QSettings。スキーマ版、操作割当、フォルダ、表示、疑似色、筆、境界、ウィンドウ状態を保存。選択ラベル、倍率、中心、未保存内容は保存しない。</td></tr>
+</tbody></table>
+<div class="callout"><strong>設計上の要点：</strong>入力、基準配列、現在配列、表示像、オーバーレイ、出力を別物として管理する。ショートカットとボタン、履歴位置と未保存判定、画面表示と保存データを同一視しない。人間は同じに見える物を同じ変数へ詰めたがるが、後で必ず報復される。</div>
+</section>
+<section id="plan">
+<h2>18. 推奨開発順序</h2>
+<ol>
+<li><strong>データ層：</strong>Unicode対応キー、入力検査、原画像sRGB表示変換、三値配列、基準配列、下端保護、ハッシュ。</li>
+<li><strong>保存層：</strong>変更なし保存、出力状態、排他ロック、外部変更検査、原子的保存。</li>
+<li><strong>閲覧層：</strong>原解像度合成、疑似色、レイヤ表示、ズーム、パン、余白、格子、DPI変更。</li>
+<li><strong>基本編集：</strong>選択色、円・正方形筆マスク、筆トランザクション、塗り潰し、三値非表示時排他。</li>
+<li><strong>履歴：</strong>Undo・Redo、基準配列との内容比較、履歴上限。</li>
+<li><strong>規則処理：</strong>二種の境界生成、太さ、保護領域、全体Undo。</li>
+<li><strong>検査支援：</strong>小領域解析、色別件数、警告オーバーレイ、改訂番号。</li>
+<li><strong>遷移・異常系：</strong>未保存確認、既存出力選択、対象外一覧、フォーカス喪失、保存競合。</li>
+<li><strong>設定：</strong>初期値・永続化、疑似色設定、Action Registry、キー入力待機、操作型、反復、競合解決。</li>
+<li><strong>受入・配布：</strong>AT-001～079、自動算法試験、Windows実機、高DPI、日本語入力方式、複数モニター、多重起動、配布手順。</li>
+</ol>
+</section>
+<section id="out-of-scope">
+<h2>19. 初期版の対象外</h2>
+<ul>
+<li>画像の自動位置合わせ、回転、拡縮、切抜き。</li>
+<li>原画像から正解三値画像を推論する機械学習。</li>
+<li>四値以上のラベル、任意保存色、半透明ラベル。</li>
+<li>下位フォルダの再帰探索。</li>
+<li>複数画像を未保存のまま同時保持するタブ編集。</li>
+<li>選択範囲、直線、スポイト、コピー・貼り付け、前後画像複製。</li>
+<li>選択範囲だけの境界生成。</li>
+<li>異常終了後の未保存編集自動復元。</li>
+<li>出力とは独立した確認済み台帳、作業者、日時等の進捗管理。</li>
+<li>物理走査符号または鍵盤位置に基づくキー割当、複数段キーシーケンス。</li>
+<li>マウスボタン、ホイール方向、ドラッグジェスチャー自体の再割当。</li>
+<li>アルファ、索引色、CMYK、16-bit以上の原画像。</li>
+<li>macOS・Linux対応、Web版、複数人同時編集。</li>
+</ul>
+</section>
+<section id="references">
+<h2>20. 参考資料</h2>
+<ol class="footnotes">
+<li>GIMP Developer Documentation, <a href="https://developer.gimp.org/core/algorithm/compositing/">Compositing and layer modes in GIMP</a>。比較（暗）を成分最小値、比較（明）を成分最大値として定義。</li>
+<li>GIMP 3.2 Manual, <a href="https://docs.gimp.org/3.2/en/gimp-concepts-layer-modes.html">Layer Modes</a>。最下層の通常以外のモードが作用しないことを記載。</li>
+<li>GIMP 3.0 Manual, <a href="https://docs.gimp.org/3.0/en/layer-mode-group-lighten.html">Lighten Layer Modes</a>。</li>
+<li>GIMP 3.0 Manual, <a href="https://docs.gimp.org/3.0/en/layer-mode-group-darken.html">Darken Layer Modes</a>。</li>
+</ol>
+</section>
+<div class="footer">TIE-SPEC-001 / Version 1.5 / 2026-08-18</div>
+</main>
+</div>
+<script>
+(() => {
+  const links = [...document.querySelectorAll('nav a')];
+  const sections = links
+    .map(a => document.querySelector(a.getAttribute('href')))
+    .filter(Boolean);
+  const observer = new IntersectionObserver(entries => {
+    const visible = entries
+      .filter(e => e.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    if (!visible) return;
+    links.forEach(a => {
+      const active = a.getAttribute('href') === '#' + visible.target.id;
+      a.style.background = active ? 'var(--accent-soft)' : '';
+      a.style.color = active ? 'var(--text)' : '';
+      a.style.fontWeight = active ? '700' : '';
+    });
+  }, { rootMargin: '-10% 0px -78% 0px', threshold: [0, 0.1, 0.5] });
+  sections.forEach(s => observer.observe(s));
+})();
+</script>
+</body>
+</html>
