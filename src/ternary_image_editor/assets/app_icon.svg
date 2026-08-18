@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">三値画像修正GUIツール アプリケーションアイコン</title>
+  <desc id="desc">同一座標の粒子を、黒灰白の三値画像と右下の原画像観察窓で連続表示し、白い境界画素を角形の筆で修正する図案</desc>
+
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#26313d"/>
+      <stop offset="0.52" stop-color="#151d26"/>
+      <stop offset="1" stop-color="#0b1118"/>
+    </linearGradient>
+
+    <pattern id="checker" width="128" height="128" patternUnits="userSpaceOnUse">
+      <rect width="128" height="128" fill="#111923"/>
+      <rect width="64" height="64" fill="#27323e"/>
+      <rect x="64" y="64" width="64" height="64" fill="#27323e"/>
+    </pattern>
+
+    <linearGradient id="sourceParticle" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffb000"/>
+      <stop offset="0.34" stop-color="#ff376f"/>
+      <stop offset="0.68" stop-color="#8a42ff"/>
+      <stop offset="1" stop-color="#00c9ea"/>
+    </linearGradient>
+
+    <linearGradient id="sourceField" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f3f66"/>
+      <stop offset="0.55" stop-color="#10253c"/>
+      <stop offset="1" stop-color="#24143d"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="180%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+
+    <clipPath id="baseClip">
+      <rect x="40" y="40" width="944" height="944" rx="218"/>
+    </clipPath>
+
+    <clipPath id="canvasClip">
+      <rect x="148" y="130" width="720" height="720" rx="86"/>
+    </clipPath>
+
+    <mask id="ternaryOutsideWindow" maskUnits="userSpaceOnUse" x="120" y="100" width="780" height="780">
+      <rect x="148" y="130" width="720" height="720" rx="86" fill="#ffffff"/>
+      <rect x="586" y="548" width="250" height="250" rx="18" fill="#000000"/>
+    </mask>
+
+    <!-- 原画像と三値画像が厳密に共有する、画面全体座標の粒子輪郭。 -->
+    <path id="particle" d="M 205 585
+      C 226 437, 338 326, 486 310
+      C 631 294, 738 350, 786 442
+      L 818 442 L 818 506 L 802 506
+      C 846 586, 806 700, 702 762
+      C 596 826, 438 818, 317 760
+      C 225 716, 183 645, 205 585 Z"/>
+  </defs>
+
+  <!-- 外側は未描画で透明。 -->
+  <g clip-path="url(#baseClip)">
+    <rect x="40" y="40" width="944" height="944" fill="url(#base)"/>
+    <rect x="40" y="40" width="944" height="944" fill="url(#checker)" opacity="0.24"/>
+    <ellipse cx="290" cy="176" rx="360" ry="240" fill="#7fa8c8" opacity="0.08"/>
+  </g>
+  <rect x="50" y="50" width="924" height="924" rx="208" fill="none" stroke="#52606e" stroke-width="18"/>
+
+  <!-- 下層の縁だけを少量露出し、二枚の画像が揃って重なることを示す。 -->
+  <rect x="174" y="156" width="720" height="720" rx="86"
+    fill="#3b4652" stroke="#74818e" stroke-width="18" filter="url(#shadow)"/>
+
+  <!-- 同一座標の原画像。通常は三値面に覆われ、右下の観察窓だけから見える。 -->
+  <g clip-path="url(#canvasClip)" filter="url(#shadow)">
+    <rect x="148" y="130" width="720" height="720" fill="url(#sourceField)"/>
+    <use href="#particle" fill="url(#sourceParticle)"/>
+    <circle cx="496" cy="516" r="118" fill="#ffd858" opacity="0.25"/>
+    <path d="M 174 710 C 304 548, 430 612, 544 478 C 652 350, 750 394, 844 292"
+      fill="none" stroke="#80efff" stroke-width="18" opacity="0.38"/>
+  </g>
+
+  <!-- 上層の三値画像。観察窓だけを切り欠き、輪郭の同一座標対応を露出する。 -->
+  <g mask="url(#ternaryOutsideWindow)">
+    <rect x="148" y="130" width="720" height="720" rx="86" fill="#000000"/>
+    <!-- 白は装飾線ではなく、境界ラベル2そのもの。 -->
+    <use href="#particle" fill="#808080" stroke="#ffffff" stroke-width="52" stroke-linejoin="miter"/>
+  </g>
+
+  <!-- 前面の中立色フレーム。白い境界帯と混同させない。 -->
+  <rect x="148" y="130" width="720" height="720" rx="86"
+    fill="none" stroke="#7c8995" stroke-width="18"/>
+
+  <!-- 右下の観察窓。同一輪郭が白帯から彩色へ連続する。 -->
+  <rect x="586" y="548" width="250" height="250" rx="18"
+    fill="none" stroke="#9aa6b2" stroke-width="12"/>
+  <path d="M 586 592 V 548 H 630 M 792 548 H 836 V 592
+    M 836 754 V 798 H 792 M 630 798 H 586 V 754"
+    fill="none" stroke="#6f7b87" stroke-width="10" stroke-linecap="square"/>
+
+  <!-- 境界の一部を3×3画素へ拡大し、編集対象を限定する。 -->
+  <g transform="translate(728 486)">
+    <rect x="0" y="0" width="32" height="32" fill="#808080"/>
+    <rect x="32" y="0" width="32" height="32" fill="#808080"/>
+    <rect x="64" y="0" width="32" height="32" fill="#ffffff"/>
+    <rect x="0" y="32" width="32" height="32" fill="#808080"/>
+    <rect x="32" y="32" width="32" height="32" fill="#ffffff"/>
+    <rect x="64" y="32" width="32" height="32" fill="#000000"/>
+    <rect x="0" y="64" width="32" height="32" fill="#ffffff"/>
+    <rect x="32" y="64" width="32" height="32" fill="#000000"/>
+    <rect x="64" y="64" width="32" height="32" fill="#000000"/>
+    <path d="M 0 32 H 96 M 0 64 H 96 M 32 0 V 96 M 64 0 V 96"
+      fill="none" stroke="#35414d" stroke-width="3"/>
+    <rect x="-5" y="-5" width="106" height="106" rx="8"
+      fill="none" stroke="#9aa6b2" stroke-width="7"/>
+  </g>
+
+  <!-- 短く太い画素筆。柄だけを斜めにし、筆頭は格子と平行な正方形に保つ。 -->
+  <g transform="rotate(-45 792 534)" filter="url(#shadow)">
+    <rect x="784" y="507" width="176" height="54" rx="18"
+      fill="#202a35" stroke="#080d12" stroke-width="12"/>
+    <rect x="814" y="507" width="38" height="54" fill="#00d6de"/>
+  </g>
+  <path d="M 792 518 L 818 492 L 838 512 L 812 538"
+    fill="#e9eef2" stroke="#111923" stroke-width="7" stroke-linejoin="round"/>
+  <!-- 正方形の筆頭を、3×3格子中央の白い一画素へ厳密に重ねる。 -->
+  <rect x="760" y="518" width="32" height="32" rx="3"
+    fill="#ffffff" stroke="#111923" stroke-width="7"/>
+</svg>

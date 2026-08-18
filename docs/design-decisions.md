@@ -45,6 +45,7 @@
 | 協調保存排他・decision.save.cooperative-lock | adopted | 正式出力ごとの安定側車lockを非待機で取得し、取得後のSHA再検査から一時PNG検証、`os.replace`、置換後検査まで保持する。lockファイル自体は削除せず再利用する | SAVE-007/010、AT-070。Windows実プロセス試験で差戻し可 |
 | 原子的保存境界・decision.save.replace-boundary | adopted | 同一フォルダ一時PNGを再読込検証後 `os.replace` し、原画像・入力三値・出力を内容指紋で再検査する | 故障原子性と観測可能な外部変更を守る。非協調writerのCAS極小窓は残危険へ分離 |
 | 画面外geometry回復・decision.window.geometry-recovery | adopted | 保存geometryが現在の画面集合と交差しない場合は主画面を既定画面の可視範囲へ戻す | §15.2のウィンドウ位置・寸法、SET-004。複数モニター変更後の到達不能を避ける |
+| アプリケーションアイコン資産・decision.packaging.application-icon | adopted | SVGを編集正本、PNGをQt実行時資産、ICOをWindows exe資産として分離し、`QApplication.setWindowIcon`とPyInstaller `--icon`へ同じ図案族を接続する | クリック起動、ウィンドウ、タスクバー、Explorerの視覚同一性を保つ。PNG同梱hashとWindows実表示に齟齬があれば差戻す |
 
 ## 置換済み判断
 
@@ -62,6 +63,7 @@
 | 非協調保存窓・risk.save.noncooperative-writer-cas-window | 本アプリおよび同じ側車lock規約に従う協調writerは検査から置換まで排他。非協調変更もSHA再検査と置換後検査で多くを検出する | lockに従わない別アプリが最後の出力照合と `os.replace` 呼出しの間だけで更新した場合の内容条件付き置換 | 同一出力への非協調同時書込を運用禁止するか、Windows固有の条件付き置換相当を追加するかを人間が決める |
 | Windowsロック意味差・risk.save.windows-lock-semantics | POSIX開発環境で非待機排他・安定inode・失敗時不変を自動検証 | Windows 10/11での実プロセス間 `msvcrt` lock、強制終了後回復、共有フォルダ差 | Windows AT-070を実施 |
 | IME・配列差・risk.keys.windows-ime-layout | PortableText正規化とNativeText変換を局所検証 | 日本語入力方式ON/OFF、JIS/US配列、予約キーのWindows実挙動 | Windows AT-050を実施 |
+| 小寸法アイコン・risk.packaging.small-icon-optics | 1024px編集正本から16/32/48/64/128/256pxをICOへ収載し、64px以上の図柄同一性を局所確認 | 16/32pxで観察窓、境界画素、正方形筆頭の全意味を同時に識別できること | WindowsのExplorer、タスクバー、ウィンドウで実表示し、必要なら小寸法光学別稿を作る |
 
 ## 保留中の人間判断
 
@@ -72,3 +74,4 @@
 | Windows性能受理・decision.windows-performance-acceptance | human | 最終公開受理 | local実装にはnonblocking、公開にはblocking | 仕様14.3を対象機で反復測定 | 対象PC確定後・公開判断前 | `local-verification-2026-08-18.md`, 仕様14.3 |
 | 配布形式・decision.windows-distribution | human | 配布 | 初期機能にはnonblocking | 機能受理後に署名・installer要否を決める | exe起動受理後 | `windows-acceptance-checklist.md` |
 | 非協調writer競合・decision.windows-save-race | human | 外部アプリ併用時の公開受理 | 本アプリ多重起動にはnonblocking、同一出力への非協調同時書込運用にはblocking | 競合注入結果を見て運用禁止または追加補償を選ぶ | 外部アプリ併用運用を認める前 | `requirements-traceability.md`, `windows-acceptance-checklist.md` |
+| Windowsアプリケーションアイコン受理・decision.windows-application-icon-acceptance | human | 配布物の視覚受理 | local実装にはnonblocking、配布受理にはblocking | Explorer、タスクバー、主windowを16/32pxと各DPIで確認し、同一図案か、既定アイコンへ戻っていないかを記録 | Windows候補構築後・配布判断前 | `windows-acceptance-checklist.md` |
