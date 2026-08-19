@@ -84,3 +84,10 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
 成果物は `dist/TernaryImageEditor/TernaryImageEditor.exe`。配布判断前に
 [Windows最終受入チェックリスト](docs/windows-acceptance-checklist.md)を埋める。構築時には
 同じ配布フォルダの `docs/` へv1.5要求正本を複製し、固定SHA-256も検査する。
+
+`TernaryImageEditor.exe` はExplorerからダブルクリックして起動できる。PyInstallerの
+one-folder配布なので、exeだけを別の場所へ抜き出さず、`dist/TernaryImageEditor/` 一式を
+保ったまま配布する。採用アイコンは
+`src/ternary_image_editor/assets/app_icon.svg`を編集正本とし、Qtのウィンドウ表示にはPNG、
+Windowsのexe資源にはICOを使う。構築スクリプトは実行時PNGの同梱とSHA-256一致も検査する。
+Explorer、タスクバー、ウィンドウでの16/32pxを含む最終表示はWindows実機受入事項である。
