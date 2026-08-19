@@ -2,7 +2,11 @@
 
 現行正本は `ternary_image_editor_spec_v1_5.html`（SHA-256:
 `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`）。v1.1は履歴であり、
-現在の受理根拠には用いない。
+現在の受理根拠には用いない。マウス入力割当だけは `mouse-input-bindings-addendum.md`
+（`TIE-ADD-PTR-001`、SHA-256:
+`91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`）がv1.5を限定
+上書きする。v1.5のHTMLとhashは変更しない。
+この追跡表の現行対象応用版は `0.3.0`。
 
 状態語は次の意味に限る。
 
@@ -10,8 +14,14 @@
 - `automated-local`: 現在のmacOS開発環境で当該契約を自動検証した。
 - `automated-partial`: 下位契約は自動検証したが、受入条件全体の端から端までの試験ではない。
 - `windows-pending`: Windows実機または配布候補でなければ閉じられない。
+- `planned`: 契約と検証対象は記録したが、実装または証拠をまだ確認していない。
 
-いずれも最終人間受理を表さない。
+いずれも最終人間受理を表さない。公開取得物には包装検査用の
+`tests/test_packaging.py`だけを含める。以下の機能要求に対する`automated-local`は、特記がない限り
+非公開の開発作業木で得た機能試験証拠を表し、公開包装試験の成功から導出しない。
+固定hashを持つマウス入力割当追補9節の「試験コードを含めない」という一般記述は、現在の
+包装試験だけの公開例外を反映していない。追補本文を同一hashのまま改変せず、本追跡表と
+READMEでこの範囲差を明示する。
 
 ## v1.1から継続する受入条件
 
@@ -77,6 +87,26 @@
 | AT-078 | 固定マウス操作・保持パン | `canvas.py`, `ActionRegistry`, `main_window.py` | 固定mouse経路、GUI latch、K/Ctrl+K再割当、旧Space無効化、修飾キー先離し後の主キーKeyUp解除、重複hold tokenを自動検証 | implemented / automated-local |
 | AT-079 | 出力ありと確認状態 | `main_window.py`, `session.py` | clean保存と外部新規出力に加え、`test_at_069_079_external_change_invalidates_cached_output_error` が削除CANCEL→出力なし、置換CANCEL→出力ありへ一覧を同期し、誤った「出力不正」を残さないことを検証 | implemented / automated-local |
 
+## マウス入力割当追補の受入条件
+
+`PTR-AT-*` は `TIE-ADD-PTR-001` だけに属し、v1.5本文の `AT-*` とは別の要求身元である。
+局所統合証拠は2026-08-19（Asia/Tokyo）のmacOS開発作業木で `uv run pytest` を実行した
+344件成功である。次表の試験名はこの非公開機能試験集合に属する。
+
+| 追補AT | 契約 | 現在の実装 | 現在の自動証拠 | 状態 |
+| --- | --- | --- | --- | --- |
+| PTR-AT-001 | 七基底token、Ctrl/Alt/Shift正規化、完全一致 | `action_registry.py`, `main_window.py` | `test_pointer_tokens_are_canonical_bindings`, `test_pointer_modifiers_are_ordered_and_unsupported_modifiers_are_rejected`, `test_pointer_wheel_assignment_is_exact_and_overrides_fixed_zoom` | implemented / automated-local |
+| PTR-AT-002 | Meta、鍵盤+mouse、複数button、専用double-click、drag、水平wheel、macro、global入力を拒否 | `action_registry.py`, `settings_dialog.py`, `main_window.py` | `test_qt_pointer_helpers_have_one_mapping_and_reject_unsupported_input`, `test_capture_consumes_double_click_sequence_without_second_candidate`, `test_capture_takes_vertical_wheel_but_excludes_zero_and_horizontal`。複数button・drag・macroの専用試験は未追加 | implemented / automated-partial |
+| PTR-AT-003 | 既存38操作と主・副割当を維持し、鍵盤・ポインタ間で同じ競合移動・取消を適用 | `action_registry.py`, `settings_dialog.py` | `test_at_038_049_all_operations_have_one_registry_and_menu_surface`, `test_pointer_bindings_share_conflict_space_with_keyboard_bindings` | implemented / automated-local |
+| PTR-AT-004 | button・垂直wheelを一候補として捕捉し、左・中・wheelの固定操作置換を適用前確認 | `settings_dialog.py` | `test_capture_takes_supported_mouse_button_and_consumes_its_release`, `test_capture_takes_vertical_wheel_but_excludes_zero_and_horizontal`, `test_fixed_pointer_override_confirmation_can_cancel_without_mutation`, `test_fixed_pointer_override_confirmation_can_accept` | implemented / automated-local |
+| PTR-AT-005 | 主画像Canvas限定で作動し、設定画面・一般UI入力を奪わない | `main_window.py`, `settings_dialog.py` | `test_pointer_assignments_are_canvas_only_and_disabled_exact_input_is_consumed`, `test_dialog_does_not_intercept_idle_mouse_or_wheel` | implemented / automated-local |
+| PTR-AT-006 | 未割当の固定操作を保ち、割当済み完全一致は無効時もfallbackせず、一時パン中の左buttonを優先 | `main_window.py`, `canvas.py`, `action_registry.py` | `test_pointer_wheel_assignment_is_exact_and_overrides_fixed_zoom`, `test_assigned_disabled_pointer_binding_is_consumed_without_invocation`, `test_mouse_left_assignment_preserves_existing_temporary_pan_escape_route`と既存wheel・pan回帰 | implemented / automated-local |
+| PTR-AT-007 | SINGLE・STEP・HOLDをevent種別どおり実行し、wheel→HOLDとMouseLeft系→一時パンを拒否 | `action_registry.py`, `settings_dialog.py` | `test_registry_dispatches_pointer_single_step_and_hold_bindings`, `test_hold_binding_constraints_apply_to_assignment_and_initial_bindings`, `test_invalid_hold_pointer_bindings_show_core_reason_without_mutation` | implemented / automated-local |
+| PTR-AT-008 | double-click二押下、wheel一event単位、押下token latch、同期modal再入、非活性化・焦点・捕捉喪失・設定適用で全HOLD解放 | `action_registry.py`, `main_window.py` | `test_pointer_runtime_double_click_counts_two_presses_and_stroke_blocks_new_inputs`, `test_pointer_button_hold_uses_press_token_and_deactivation_cleans_latch`, `test_pointer_latch_exists_before_reentrant_callback_and_is_not_recreated`, `test_dialog_cancel_and_deactivate_clear_pointer_release_latches`。pointer HOLDのFocusOut・UngrabMouse専用試験は未追加 | implemented / automated-partial |
+| PTR-AT-009 | 筆描画中は完成・取消入力だけを所有し、ほかのポインタ割当を発火も予約もせず消費 | `canvas.py`, `main_window.py` | `test_pointer_runtime_double_click_counts_two_presses_and_stroke_blocks_new_inputs`, `test_edit_009_view_change_during_brush_is_rejected_not_reserved` | implemented / automated-local |
+| PTR-AT-010 | schema 2保存、schema 0/1鍵盤割当の無警告移行、既存path維持、欄単位の破損fallback、正常な明示割当を低優先fallbackより優先 | `settings_model.py`, `action_registry.py` | `test_schema_one_keyboard_settings_migrate_to_schema_two_without_warning`, `test_schema_two_pointer_bindings_roundtrip`, `test_missing_shortcut_uses_default_unknown_id_is_ignored_and_corruption_is_local`, `test_invalid_fallback_does_not_displace_a_valid_explicit_binding`, `test_missing_default_does_not_displace_a_valid_explicit_binding`。schema 0の任意鍵盤割当と組織名・応用名を跨ぐ専用移行試験は未追加 | implemented / automated-partial |
+| PTR-AT-011 | Windows実機でBack/Forward、precision touchpad/inertia、modal中release、旧schema保持を確認 | 配布候補 | macOSの合成Qt eventだけでは閉じない | windows-pending |
+
 ## AT表外の横断要求証拠
 
 - KEY-004: `test_action_registry.py` が単文字・数字・記号と標準文字編集キーを編集欄では
@@ -94,6 +124,8 @@
 - AT-070のWindows 10 / 11における実プロセス間ロック、ロック中断後の回復。
 - Windows 10 / 11上の対象業務PCでの性能目標、ファイルロック、ACL、Unicode長パス。
 - Windows配布物からの起動、設定永続化、画面外に残った旧geometryの復旧。
+- PTR-AT-011のBack・Forward button、precision touchpadのwheel分割・inertia、modal画面中の
+  HOLD解放、schema 0/1から2への実設定移行。
 - 同じ側車ロック規約に従わない別アプリが、最後の内容照合と `os.replace` 呼出しの間へ
   割り込む競合。協調writerは保存ロックで排他するが、`os.replace` 自体は内容条件付き置換
   ではない。

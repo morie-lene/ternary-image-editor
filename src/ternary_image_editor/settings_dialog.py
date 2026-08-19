@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from enum import StrEnum
+from time import monotonic
 
 from PySide6.QtCore import QEvent, QObject, QRegularExpression, Qt, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QKeyEvent, QKeySequence, QRegularExpressionValidator
+from PySide6.QtGui import (
+    QCloseEvent,
+    QColor,
+    QKeyEvent,
+    QKeySequence,
+    QMouseEvent,
+    QRegularExpressionValidator,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -34,11 +43,17 @@ from .action_registry import (
     OPERATION_SPECS,
     AssignmentStatus,
     AssignmentTarget,
+    OperationType,
     ShortcutConflict,
     ShortcutSlot,
+    binding_is_pointer,
+    canonical_binding,
     canonical_shortcut,
-    native_shortcut,
+    mouse_button_binding,
+    native_binding,
+    pointer_base,
     shortcut_is_reserved,
+    wheel_binding,
 )
 from .constants import (
     MAX_BOUNDARY_THICKNESS,
@@ -73,13 +88,21 @@ _MODIFIER_KEYS_BY_FLAG = (
     (Qt.KeyboardModifier.ShiftModifier, int(Qt.Key.Key_Shift)),
     (Qt.KeyboardModifier.MetaModifier, int(Qt.Key.Key_Meta)),
 )
+_MOUSE_EVENT_TYPES = {
+    QEvent.Type.MouseButtonPress,
+    QEvent.Type.MouseButtonRelease,
+    QEvent.Type.MouseButtonDblClick,
+}
+_WHEEL_TAIL_NO_PHASE_SECONDS = 0.2
+_WHEEL_TAIL_PHASE_TIMEOUT_SECONDS = 1.0
 
 
 class ShortcutCaptureController(QObject):
-    """One-chord logical-key capture independent of any settings widget."""
+    """One-binding keyboard/pointer capture independent of settings widgets."""
 
     state_changed = Signal(object)
     candidate_ready = Signal(object, str)
+    wheel_candidate_started = Signal(object)
     rejected = Signal(str)
     cancelled = Signal(str)
 
@@ -89,6 +112,11 @@ class ShortcutCaptureController(QObject):
         self.target: AssignmentTarget | None = None
         self._pressed_keys: set[int] = set()
         self._ignored_until_release: set[int] = set()
+        self._pressed_buttons: set[Qt.MouseButton] = set()
+        self._ignored_buttons_until_release: set[Qt.MouseButton] = set()
+        self._captured_buttons_until_release: set[Qt.MouseButton] = set()
+        self._recent_captured_releases: set[Qt.MouseButton] = set()
+        self._double_click_buttons: set[Qt.MouseButton] = set()
 
     @property
     def is_active(self) -> bool:
@@ -98,32 +126,68 @@ class ShortcutCaptureController(QObject):
     def pressed_keys(self) -> frozenset[int]:
         return frozenset(self._pressed_keys)
 
+    @property
+    def pressed_buttons(self) -> frozenset[Qt.MouseButton]:
+        return frozenset(self._pressed_buttons)
+
     def start(
         self,
         target: AssignmentTarget,
         *,
         preheld_keys: Iterable[int] = (),
+        preheld_buttons: Iterable[Qt.MouseButton] = (),
     ) -> None:
         if self.is_active:
             self.cancel("別の割当欄を選択した")
+        self.clear_pointer_latches()
         self.target = target
         self._ignored_until_release = self._pressed_keys | {int(key) for key in preheld_keys}
+        self._ignored_buttons_until_release = self._pressed_buttons | {
+            Qt.MouseButton(button) for button in preheld_buttons
+        }
         self._set_state(CaptureState.WAITING)
 
     def finish(self) -> None:
         self.target = None
         self._ignored_until_release.clear()
+        self._ignored_buttons_until_release.clear()
         self._set_state(CaptureState.IDLE)
 
     def cancel(self, reason: str = "取消") -> None:
         if not self.is_active:
+            self.clear_pointer_latches()
             return
         self.finish()
+        self.clear_pointer_latches()
         self.cancelled.emit(reason)
 
+    def clear_pointer_latches(self, *, clear_pressed: bool = False) -> None:
+        """Clear capture-only pointer state while optionally forgetting physical state."""
+
+        self._ignored_buttons_until_release.clear()
+        self._captured_buttons_until_release.clear()
+        self._recent_captured_releases.clear()
+        self._double_click_buttons.clear()
+        if clear_pressed:
+            self._pressed_buttons.clear()
+
+    def reset_input_state(self) -> None:
+        """Forget physical input state after a deactivation may have lost releases."""
+
+        self.clear_pointer_latches(clear_pressed=True)
+        self._pressed_keys.clear()
+        self._ignored_until_release.clear()
+
     def handle_event(self, event: QEvent) -> bool:
-        if not isinstance(event, QKeyEvent):
-            return False
+        if isinstance(event, QKeyEvent):
+            return self._handle_key_event(event)
+        if isinstance(event, QMouseEvent):
+            return self._handle_mouse_event(event)
+        if isinstance(event, QWheelEvent):
+            return self._handle_wheel_event(event)
+        return False
+
+    def _handle_key_event(self, event: QKeyEvent) -> bool:
         key = int(event.key())
         if event.type() == QEvent.Type.KeyRelease:
             self._pressed_keys.discard(key)
@@ -181,6 +245,116 @@ class ShortcutCaptureController(QObject):
         self.candidate_ready.emit(target, portable)
         return True
 
+    def _handle_mouse_event(self, event: QMouseEvent) -> bool:
+        button = event.button()
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseButtonRelease:
+            self._pressed_buttons.discard(button)
+            self._ignored_buttons_until_release.discard(button)
+            if button in self._captured_buttons_until_release:
+                self._captured_buttons_until_release.discard(button)
+                if button in self._double_click_buttons:
+                    self._double_click_buttons.discard(button)
+                else:
+                    self._recent_captured_releases.add(button)
+                return True
+            return self.is_active
+        if event_type == QEvent.Type.MouseButtonDblClick:
+            self._pressed_buttons.add(button)
+            if button in self._recent_captured_releases:
+                self._recent_captured_releases.discard(button)
+                self._captured_buttons_until_release.add(button)
+                self._double_click_buttons.add(button)
+                return True
+            return self.is_active
+        if event_type != QEvent.Type.MouseButtonPress:
+            return False
+
+        self._pressed_buttons.add(button)
+        # A normal press cannot be the continuation represented by Qt's
+        # MouseButtonDblClick event, so an old double-click guard is obsolete.
+        self._recent_captured_releases.discard(button)
+        if self.state is not CaptureState.WAITING:
+            return self.state is CaptureState.CANDIDATE
+        if button in self._ignored_buttons_until_release:
+            return True
+        if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
+            self._ignored_buttons_until_release.add(button)
+            self.rejected.emit("Meta/Windows修飾は割当不能")
+            return True
+        if self._pointer_has_preheld_modifiers(event.modifiers(), button=button):
+            return True
+        try:
+            binding = mouse_button_binding(button, event.modifiers())
+        except (TypeError, ValueError) as exc:
+            self._ignored_buttons_until_release.add(button)
+            self.rejected.emit(str(exc) or "対応していないマウスボタン")
+            return True
+        if binding is None:
+            self._ignored_buttons_until_release.add(button)
+            self.rejected.emit("対応していないマウスボタン")
+            return True
+        target = self.target
+        if target is None:
+            return True
+        self._captured_buttons_until_release.add(button)
+        self._set_state(CaptureState.CANDIDATE)
+        self.candidate_ready.emit(target, binding)
+        return True
+
+    def _handle_wheel_event(self, event: QWheelEvent) -> bool:
+        if self.state is not CaptureState.WAITING:
+            return self.state is CaptureState.CANDIDATE
+        if event.modifiers() & Qt.KeyboardModifier.MetaModifier:
+            self.rejected.emit("Meta/Windows修飾は割当不能")
+            return True
+        if self._pointer_has_preheld_modifiers(event.modifiers()):
+            return True
+        # Runtime dispatch and the canvas' fixed zoom both use angleDelta.
+        # Do not capture a pixel-only token that the main window cannot replay.
+        delta_y = event.angleDelta().y()
+        if delta_y == 0:
+            return True
+        try:
+            binding = wheel_binding(delta_y, event.modifiers())
+        except (TypeError, ValueError) as exc:
+            self.rejected.emit(str(exc) or "縦ホイール入力として取得できない")
+            return True
+        if binding is None:
+            return True
+        target = self.target
+        if target is None:
+            return True
+        # A modal confirmation may run synchronously from candidate_ready.
+        # Arm its inertial tail first so nested event processing cannot leak it.
+        self.wheel_candidate_started.emit(event)
+        self._set_state(CaptureState.CANDIDATE)
+        self.candidate_ready.emit(target, binding)
+        return True
+
+    def _pointer_has_preheld_modifiers(
+        self,
+        modifiers: Qt.KeyboardModifier,
+        *,
+        button: Qt.MouseButton | None = None,
+    ) -> bool:
+        unobserved_modifiers = {
+            modifier_key
+            for modifier_flag, modifier_key in _MODIFIER_KEYS_BY_FLAG
+            if modifiers & modifier_flag and modifier_key not in self._pressed_keys
+        }
+        if unobserved_modifiers:
+            self._pressed_keys.update(unobserved_modifiers)
+            self._ignored_until_release.update(unobserved_modifiers)
+            if button is not None:
+                self._ignored_buttons_until_release.add(button)
+            return True
+        if not self._ignored_until_release.isdisjoint(_MODIFIER_KEY_VALUES):
+            if button is not None:
+                self._ignored_buttons_until_release.add(button)
+            return True
+        return False
+
     def _set_state(self, state: CaptureState) -> None:
         if self.state is state:
             return
@@ -191,6 +365,7 @@ class ShortcutCaptureController(QObject):
 ConflictResolver = Callable[[ShortcutConflict], str]
 ConfirmationHook = Callable[[], bool]
 ColorConfirmationHook = Callable[[tuple[tuple[int, int, float], ...]], bool]
+PointerOverrideConfirmationHook = Callable[[str, str], bool]
 
 
 class SettingsDialog(QDialog):
@@ -215,6 +390,7 @@ class SettingsDialog(QDialog):
         conflict_resolver: ConflictResolver | None = None,
         confirm_restore_all: ConfirmationHook | None = None,
         confirm_similar_colors: ColorConfirmationHook | None = None,
+        confirm_pointer_override: PointerOverrideConfirmationHook | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("設定")
@@ -227,9 +403,13 @@ class SettingsDialog(QDialog):
         self._conflict_resolver = conflict_resolver
         self._confirm_restore_all = confirm_restore_all
         self._confirm_similar_colors = confirm_similar_colors
+        self._confirm_pointer_override = confirm_pointer_override
         self._closing = False
+        self._wheel_tail_until = 0.0
+        self._wheel_tail_waits_for_end = False
 
         self.capture = ShortcutCaptureController(self)
+        self.capture.wheel_candidate_started.connect(self._arm_wheel_tail)
         self.capture.candidate_ready.connect(self._candidate_ready)
         self.capture.rejected.connect(self._capture_rejected)
         self.capture.cancelled.connect(self._capture_cancelled)
@@ -408,17 +588,22 @@ class SettingsDialog(QDialog):
         return page
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
-        if (
-            event.type()
-            in {
-                QEvent.Type.ApplicationDeactivate,
-                QEvent.Type.WindowDeactivate,
-            }
-            and self.capture.is_active
-        ):
+        if event.type() in {
+            QEvent.Type.ApplicationDeactivate,
+            QEvent.Type.WindowDeactivate,
+        }:
             self.cancel_capture("アプリケーションが非アクティブになった")
+            self.capture.reset_input_state()
             return False
-        if event.type() in {QEvent.Type.KeyPress, QEvent.Type.KeyRelease}:
+        if isinstance(event, QWheelEvent) and self._consume_wheel_tail(event):
+            event.accept()
+            return True
+        if event.type() in {
+            QEvent.Type.KeyPress,
+            QEvent.Type.KeyRelease,
+            *_MOUSE_EVENT_TYPES,
+            QEvent.Type.Wheel,
+        }:
             if self.capture.handle_event(event):
                 event.accept()
                 return True
@@ -449,9 +634,10 @@ class SettingsDialog(QDialog):
         )
         self.shortcut_table.setCurrentCell(row, column)
         target = AssignmentTarget(operation_id, normalized_slot)
+        self._clear_wheel_tail()
         self.capture.start(target)
         self.shortcut_table.item(row, column).setText("入力待機…")
-        self.capture_status.setText("最初の有効な一段キーを押せ。Escで取消。")
+        self.capture_status.setText("最初の有効な鍵盤・マウス入力を行え。Escで取消。")
 
     def begin_selected_capture(self) -> None:
         target = self._selected_target(default_primary=True)
@@ -459,8 +645,11 @@ class SettingsDialog(QDialog):
             self.begin_capture(target.operation_id, target.slot)
 
     def cancel_capture(self, reason: str = "取消") -> None:
+        self._clear_wheel_tail()
         if self.capture.is_active:
             self.capture.cancel(reason)
+        else:
+            self.capture.clear_pointer_latches()
 
     def clear_selected_shortcut(self) -> None:
         self.cancel_capture("割当を解除した")
@@ -508,7 +697,7 @@ class SettingsDialog(QDialog):
             else QMessageBox.question(
                 self,
                 "全体既定復元",
-                "全てのキー割当を既定へ戻すか？",
+                "全ての入力割当を既定へ戻すか？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -595,37 +784,104 @@ class SettingsDialog(QDialog):
         self.work_copy.boundary_mode = str(self.boundary_mode.currentData())
         self.work_copy.boundary_thickness = self.boundary_thickness.value()
 
-    def _candidate_ready(self, target: AssignmentTarget, portable: str) -> None:
-        owner = self.work_copy.shortcut_assignments.owner_of(portable)
+    def _candidate_ready(self, target: AssignmentTarget, binding: str) -> None:
+        # End capture before opening any confirmation dialog.  Otherwise this
+        # application's event filter would also consume the dialog's clicks.
+        self.capture.finish()
+        try:
+            normalized = canonical_binding(binding)
+        except (TypeError, ValueError) as exc:
+            self.capture_status.setText(f"割当不能な入力: {exc}")
+            self._refresh_shortcut_table()
+            return
+        if normalized is None:
+            self.capture_status.setText("割当不能な入力")
+            self._refresh_shortcut_table()
+            return
+        owner = self.work_copy.shortcut_assignments.owner_of(normalized)
+        move_conflict = False
         if owner is not None and owner != target:
-            conflict = ShortcutConflict(portable, owner, target)
+            conflict = ShortcutConflict(normalized, owner, target)
             if owner.operation_id == target.operation_id:
-                self.capture_status.setText("同じ操作の主・副へ同一キーは登録できない")
-                self.capture.finish()
+                self.capture_status.setText("同じ操作の主・副へ同一入力は登録できない")
                 self._refresh_shortcut_table()
                 return
             resolution = self._resolve_conflict(conflict)
             if resolution != "move":
                 self.capture_status.setText("競合する変更を取り消した")
-                self.capture.finish()
                 self._refresh_shortcut_table()
                 return
-            result = self.work_copy.shortcut_assignments.assign(
+            move_conflict = True
+        preview = self.work_copy.shortcut_assignments.copy()
+        try:
+            result = preview.assign(
                 target.operation_id,
                 target.slot,
-                portable,
-                move_conflict=True,
+                normalized,
+                move_conflict=move_conflict,
             )
-        else:
-            result = self.work_copy.shortcut_assignments.assign(
-                target.operation_id, target.slot, portable
+        except (TypeError, ValueError) as exc:
+            self.capture_status.setText(
+                self._assignment_error_text(target, normalized, fallback=str(exc))
             )
+            self._refresh_shortcut_table()
+            return
+        if (
+            result.status is AssignmentStatus.APPLIED
+            and not self._confirm_fixed_pointer_override(normalized)
+        ):
+            self.capture_status.setText("固定マウス操作を置き換える変更を取り消した")
+            self._refresh_shortcut_table()
+            return
         if result.status in {AssignmentStatus.APPLIED, AssignmentStatus.UNCHANGED}:
-            self.capture_status.setText(f"候補: {native_shortcut(portable)}")
+            self.work_copy.shortcut_assignments = preview
+            self.capture_status.setText(f"候補: {native_binding(normalized)}")
         else:
             self.capture_status.setText("割当を変更しなかった")
-        self.capture.finish()
         self._refresh_shortcut_table()
+
+    @staticmethod
+    def _assignment_error_text(
+        target: AssignmentTarget,
+        binding: str,
+        *,
+        fallback: str,
+    ) -> str:
+        spec = OPERATION_BY_ID[target.operation_id]
+        if spec.operation_type is OperationType.HOLD and pointer_base(binding) in {
+            "WheelUp",
+            "WheelDown",
+        }:
+            return "割当できない: ホイール入力には解放事象がないため、保持操作には使えない"
+        if target.operation_id == "view.temporary-pan" and pointer_base(binding) == "MouseLeft":
+            return "割当できない: 左ボタン入力は描画と衝突するため、一時パン操作には使えない"
+        return f"割当できない: {fallback}"
+
+    def _confirm_fixed_pointer_override(self, binding: str) -> bool:
+        if not binding_is_pointer(binding):
+            return True
+        fixed_effects = {
+            "WheelUp": "画布上の指示位置を中心とする拡大",
+            "WheelDown": "画布上の指示位置を中心とする縮小",
+            "MouseMiddle": "中央ボタンのドラッグによる自由移動",
+            "MouseLeft": "左ボタンによる描画・塗り潰し",
+        }
+        effect = fixed_effects.get(pointer_base(binding))
+        if effect is None:
+            return True
+        if self._confirm_pointer_override is not None:
+            return self._confirm_pointer_override(binding, effect)
+        return (
+            QMessageBox.warning(
+                self,
+                "固定マウス操作の置換",
+                f"{native_binding(binding)} を割り当てると、{effect}がこの入力では働かなくなる。\n"
+                "それでも割り当てるか？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            == QMessageBox.StandardButton.Yes
+        )
 
     def _resolve_conflict(self, conflict: ShortcutConflict) -> str:
         if self._conflict_resolver is not None:
@@ -633,8 +889,8 @@ class SettingsDialog(QDialog):
         owner = OPERATION_BY_ID[conflict.owner.operation_id]
         answer = QMessageBox.question(
             self,
-            "キー割当の競合",
-            f"{native_shortcut(conflict.sequence)} は「{owner.name}」に割当済みだ。\n"
+            "入力割当の競合",
+            f"{native_binding(conflict.sequence)} は「{owner.name}」に割当済みだ。\n"
             "既存操作から移すか？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -642,11 +898,40 @@ class SettingsDialog(QDialog):
         return "move" if answer == QMessageBox.StandardButton.Yes else "cancel"
 
     def _capture_rejected(self, reason: str) -> None:
-        self.capture_status.setText(f"{reason}。別のキーを押すかEscで取り消せ。")
+        self.capture_status.setText(f"{reason}。別の入力を行うかEscで取り消せ。")
 
     def _capture_cancelled(self, reason: str) -> None:
         self.capture_status.setText(f"入力待機を取り消した: {reason}")
         self._refresh_shortcut_table()
+
+    def _arm_wheel_tail(self, event: QWheelEvent) -> None:
+        phase = event.phase()
+        if phase == Qt.ScrollPhase.ScrollEnd:
+            self._clear_wheel_tail()
+            return
+        self._wheel_tail_waits_for_end = phase != Qt.ScrollPhase.NoScrollPhase
+        timeout = (
+            _WHEEL_TAIL_PHASE_TIMEOUT_SECONDS
+            if self._wheel_tail_waits_for_end
+            else _WHEEL_TAIL_NO_PHASE_SECONDS
+        )
+        self._wheel_tail_until = monotonic() + timeout
+
+    def _consume_wheel_tail(self, event: QWheelEvent) -> bool:
+        if self._wheel_tail_until <= 0:
+            return False
+        if monotonic() > self._wheel_tail_until:
+            self._clear_wheel_tail()
+            return False
+        if event.phase() == Qt.ScrollPhase.ScrollEnd:
+            self._clear_wheel_tail()
+        elif self._wheel_tail_waits_for_end:
+            self._wheel_tail_until = monotonic() + _WHEEL_TAIL_PHASE_TIMEOUT_SECONDS
+        return True
+
+    def _clear_wheel_tail(self) -> None:
+        self._wheel_tail_until = 0.0
+        self._wheel_tail_waits_for_end = False
 
     def _cell_double_clicked(self, row: int, column: int) -> None:
         if column not in {self.PRIMARY_COLUMN, self.SECONDARY_COLUMN}:
@@ -701,8 +986,8 @@ class SettingsDialog(QDialog):
                 spec.name,
                 spec.operation_id,
                 self._operation_type_text(spec.operation_type.value, spec.effect),
-                native_shortcut(bindings.primary) or "なし",
-                native_shortcut(bindings.secondary) or "なし",
+                native_binding(bindings.primary) or "なし",
+                native_binding(bindings.secondary) or "なし",
             )
             for column, value in enumerate(values):
                 item = self.shortcut_table.item(row, column)

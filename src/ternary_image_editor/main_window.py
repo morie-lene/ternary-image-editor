@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, QSettings, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QShowEvent
+from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QMouseEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -30,7 +30,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .action_registry import ActionRegistry, ShortcutAssignments
+from .action_registry import (
+    ActionRegistry,
+    ShortcutAssignments,
+    mouse_button_binding,
+    wheel_binding,
+)
 from .canvas import BrushShape, EditTool, ImageCanvas
 from .constants import BOTTOM_PROTECTED_START_Y, IMAGE_SIZE, LABEL_NAMES, SAVE_RGB, Label
 from .control_panel import EditorControls
@@ -128,6 +133,7 @@ class MainWindow(QMainWindow):
         self._stroke_label = int(Label.PRESENT)
         self._stroke_diameter = 5
         self._stroke_shape = "circle"
+        self._active_pointer_bindings: dict[Qt.MouseButton, str] = {}
 
         self.canvas = ImageCanvas(self)
         self.controls = EditorControls(self)
@@ -158,14 +164,29 @@ class MainWindow(QMainWindow):
         if event_type == QEvent.Type.ApplicationDeactivate or (
             watched is self and event_type == QEvent.Type.WindowDeactivate
         ):
-            self.action_registry.release_all_holds()
+            self._release_pointer_inputs()
             self.canvas.cancel_navigation_input()
             self._cancel_active_brush("非アクティブ化により筆跡全体を取り消した")
-        elif watched is self.canvas and event_type == QEvent.Type.FocusOut:
-            self.action_registry.release_all_holds()
+        elif watched is self.canvas and event_type in {
+            QEvent.Type.FocusOut,
+            QEvent.Type.UngrabMouse,
+        }:
+            self._release_pointer_inputs()
             self.canvas.cancel_navigation_input()
-            self._cancel_active_brush("焦点喪失により筆跡全体を取り消した")
-        elif event_type in {QEvent.Type.KeyPress, QEvent.Type.KeyRelease} and isinstance(
+            reason = (
+                "ポインタ捕捉喪失により筆跡全体を取り消した"
+                if event_type == QEvent.Type.UngrabMouse
+                else "焦点喪失により筆跡全体を取り消した"
+            )
+            self._cancel_active_brush(reason)
+
+        if event_type == QEvent.Type.MouseButtonRelease and isinstance(event, QMouseEvent):
+            pressed_binding = self._active_pointer_bindings.pop(event.button(), None)
+            if pressed_binding is not None:
+                self.action_registry.dispatch_pointer_release(pressed_binding)
+                return True
+
+        if event_type in {QEvent.Type.KeyPress, QEvent.Type.KeyRelease} and isinstance(
             event, QKeyEvent
         ):
             belongs_to_window = isinstance(watched, QWidget) and (
@@ -187,7 +208,68 @@ class MainWindow(QMainWindow):
                     text_input=text_input,
                 ):
                     return True
+
+        if watched is not self.canvas:
+            return super().eventFilter(watched, event)
+        modal = QApplication.activeModalWidget()
+        if modal is not None and modal is not self:
+            return super().eventFilter(watched, event)
+
+        if event_type == QEvent.Type.Wheel and isinstance(event, QWheelEvent):
+            if self._stroke_before is not None:
+                return True
+            try:
+                delta_y = event.angleDelta().y() or event.pixelDelta().y()
+                binding = wheel_binding(delta_y, event.modifiers())
+            except ValueError:
+                binding = None
+            if binding is not None and self.action_registry.dispatch_pointer_press(binding):
+                return True
+
+        if isinstance(event, QMouseEvent) and event_type in {
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonDblClick,
+        }:
+            if self._stroke_before is not None:
+                return True
+            # Spaceや一時パンGUIとの組合せはMouseLeft単体とは別の既存操作だ。
+            # 左割当を設けても、その退避経路まで奪わない。
+            if (
+                event.button() == Qt.MouseButton.LeftButton
+                and self.canvas.temporary_pan_active
+            ):
+                return super().eventFilter(watched, event)
+            try:
+                binding = mouse_button_binding(event.button(), event.modifiers())
+            except ValueError:
+                binding = None
+            if (
+                binding is not None
+                and self.action_registry.operation_for_binding(binding) is not None
+            ):
+                previous = self._active_pointer_bindings.pop(event.button(), None)
+                if previous is not None:
+                    self.action_registry.dispatch_pointer_release(previous)
+                # Register before invocation: a SINGLE callback may open a
+                # synchronous modal loop in which the physical Release and a
+                # settings replacement both occur.  Never recreate that latch
+                # after the nested loop has already cleared it.
+                self._active_pointer_bindings[event.button()] = binding
+                self.action_registry.dispatch_pointer_press(binding)
+                return True
+
+        if (
+            self._stroke_before is not None
+            and isinstance(event, QMouseEvent)
+            and event_type == QEvent.Type.MouseButtonRelease
+            and event.button() != Qt.MouseButton.LeftButton
+        ):
+            return True
         return super().eventFilter(watched, event)
+
+    def _release_pointer_inputs(self) -> None:
+        self._active_pointer_bindings.clear()
+        self.action_registry.release_all_holds()
 
     def _cancel_active_brush(self, reason: str) -> None:
         if self._stroke_before is None:
@@ -362,7 +444,7 @@ class MainWindow(QMainWindow):
         temporary_pan_action = self._operation_actions["view.temporary-pan"]
         temporary_pan_action.setCheckable(True)
         temporary_pan_action.setToolTip(
-            "割当キーの保持中、またはこのGUI状態がONの間だけ左ドラッグでパンする"
+            "割当入力の保持中、またはこのGUI状態がONの間だけ左ドラッグでパンする"
         )
         temporary_pan_action.toggled.connect(self._temporary_pan_gui_toggled)
 
@@ -753,6 +835,7 @@ class MainWindow(QMainWindow):
 
         previous_folders = self._folders
         self.applied_settings = snapshot
+        self._release_pointer_inputs()
         self.action_registry.set_assignments(ShortcutAssignments(snapshot.shortcuts))
         self.controls.original_visible.setChecked(snapshot.original_visible)
         self.controls.ternary_visible.setChecked(snapshot.ternary_visible)
@@ -1861,6 +1944,8 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def _remove_application_event_filter(self) -> None:
+        self._release_pointer_inputs()
+        self.canvas.cancel_navigation_input()
         application = QApplication.instance()
         if application is not None:
             application.removeEventFilter(self)
