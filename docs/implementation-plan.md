@@ -2,17 +2,20 @@
 
 ## 基線
 
-- 応用版: `0.4.0`
+- 応用版: `0.6.0`
 - 基線要求正本: `TIE-SPEC-001` version 1.5
 - 基線SHA-256: `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`
-- 限定追補: `TIE-ADD-FLEX-001` version 1.0
-- 限定追補SHA-256: `9f21514f8abdc473a56184514d6499985f893797c274c1b74cc79f6796034384`
+- 限定追補: `TIE-ADD-FLEX-001` version 1.2
+- 限定追補SHA-256: `a2d8a8c1c1c6202a770bac69f14f5cfed71f8f1428e9ffee49b4a06875849798`
 - 限定追補: `TIE-ADD-PTR-001` version 1.0
 - 限定追補SHA-256: `91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`
-- 範囲: v1.5の必須事項、`AT-001`〜`AT-079`、`FLEX-AT-001`〜`FLEX-AT-009`、
-  `PTR-AT-001`〜`PTR-AT-011`
+- 限定追補: `TIE-ADD-DISP-CMP-001` version 1.0
+- 限定追補SHA-256: `26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`
+- 範囲: v1.5の必須事項、`AT-001`〜`AT-079`、`FLEX-AT-001`〜`FLEX-AT-016`、
+  `PTR-AT-001`〜`PTR-AT-011`、`DISP-CMP-001`〜`DISP-CMP-008`
 - 非目的: v1.5 19節の対象外。ただし柔軟入力・対応付けは`TIE-ADD-FLEX-001`、マウス入力割当は
-  `TIE-ADD-PTR-001`が各限定範囲を上書きし、各追補の非目的に従う
+  `TIE-ADD-PTR-001`、表示比較（暗）は`TIE-ADD-DISP-CMP-001`が各限定範囲を上書きし、各追補の
+  非目的に従う
 
 v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用いない。WP0〜WP6の番号と成果物は
 その履歴から継続した作業包として残し、v1.2〜v1.5で追加した実装を同じ責任範囲へ統合する。
@@ -34,6 +37,9 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP6 | 受入対応、Windows配布補助 | WP0〜WP5 | 全ローカル検査、Windows判断門 |
 | WP7 | ポインタ入力割当、設定schema 2、追補文書 | WP4〜WP6 | PTR-AT-001〜010の局所検査、PTR-AT-011のWindows判断門 |
 | WP8 | 非零同数門、二対応方式、JPEG三値化、任意寸法、動的下端保護、追補文書 | WP1〜WP7 | FLEX-AT-001〜009の局所検査とWindows判断門 |
+| WP9 | 参照原画像の受付緩和、既存出力の自動優先、確認・診断文の整理 | WP1、WP5、WP8 | FLEX-AT-010〜011、界面回帰、全局所検査、Windows判断門 |
+| WP10 | 選択ラベル源の分離、保存済み出力再開、fallback snapshot、通知・cache寿命、選択源別保存基準 | WP1、WP3、WP5、WP9 | FLEX-AT-012〜016、全局所検査、Windows判断門 |
+| WP11 | 比較（暗）の原解像度表示切替、操作台帳、設定永続化、追補・公開試験・包装同期 | WP4〜WP7、WP10 | DISP-CMP-001〜008、公開表示契約試験、全局所検査、Windows判断門 |
 
 ## 現在状態
 
@@ -48,28 +54,38 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP6 | completed-local | ローカル全検査とsdist/wheel配布補助を完了。Windows構築は成果物の配置・非零長・MZ・一意性・hashを事後検査。Windows実機判断門はpending |
 | WP7 | completed-local-with-residual | 既存38操作へ七ポインタtokenを追加し、Canvas限定、固定操作との優先、HOLD解放、schema 2移行を実装。全344試験と `uv run ruff check .` が成功。PTR-AT-002/008/010は自動部分証拠、PTR-AT-011はwindows-pending |
 | WP8 | completed-local-with-residual | 実装と`TIE-ADD-FLEX-001`を統合し、全367試験、統合差分全体のRuff、版0.4.0 sdist/wheel、画面外GUI煙試験が成功。個別の`automated-partial`項目とWindows実機判断門はpending |
+| WP9 | completed-local-with-residual | 原画像の表示正規化、既存出力の無対話優先、入力JPEG確認の実編集元限定、界面文の整理を実装。全376試験、Ruff、依存固定検査、版0.5.0 sdist/wheel、画面外GUI煙試験が成功。Windows実画面と実データによる受理はpending |
+| WP10 | completed-local-with-residual | 選択源境界と回帰試験を版0.5.1へ実装。追補version 1.2の固定hash同期後に全410試験、公開66試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験が成功。Windows実画面と実データによる受理はpending |
+| WP11 | completed-local-with-residual | 比較（暗）の描画、常設チェック欄、39件目の操作、schema 2設定、公開契約試験、追補version 1.0、包装を版0.6.0へ統合。全415試験、公開71試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験と三系統の独立査読が成功。Windows実画面と実データによる受理はpending |
 
 ## 変更統制
 
 仕様追加や19節の対象外機能は現基線へ黙って混ぜず、正本と別identityを持つ追補または後続候補へ
 分離する。柔軟入力・対応付けは`TIE-ADD-FLEX-001`と`FLEX-AT-*`、マウス入力割当は
-`TIE-ADD-PTR-001`と`PTR-AT-*`に分離済みである。必須要求から逸脱する必要が生じた場合は、影響する
-受入試験、代替案、残危険を示し、人間判断まで実装を止める。
+`TIE-ADD-PTR-001`と`PTR-AT-*`、表示比較（暗）は`TIE-ADD-DISP-CMP-001`と`DISP-CMP-*`に
+分離済みである。必須要求から逸脱する必要が生じた場合は、影響する受入試験、代替案、残危険を示し、
+人間判断まで実装を止める。
 
 ## 安全性・依存・構成影響
 
 - 新しい認証、認可、秘密情報、network通信、telemetry、外部log出力は追加しない。入力は読取専用、
   書込先は既存の明示保存で指定した出力PNGと協調lockに限る。
 - 依存package集合を追加・削除せず、既存のPillow `ImageCms`、NumPy、Qtを使う。
-  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.4.0`へ同期する。Windows配布候補では
+  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.6.0`へ同期する。Windows配布候補では
   同梱された色管理経路を別途実機確認する。
-- 永続設定には列挙型の対応方式だけを加える。不明・破損値は厳格対応へ戻す。自然順の対応表に
-  対する確認結果とJPEG一件ごとの変換許可は永続化しない。
-- フォルダ変更・再走査・起動時再読込は別`ImageSession`で全候補を読込preflightし、成功後だけ
-  session・pairs・foldersを一括導入する。JPEG取消、全候補失敗、blocking count診断では旧状態を
-  保ち、出力probeはpreflight、JPEG確認、未保存判断の後へ遅延する。
+- 永続設定には列挙型の対応方式と、既定falseの比較（暗）真偽値だけを加える。対応方式の不明・破損値は
+  厳格対応へ、比較（暗）の欠損・破損値はfalseへ戻す。自然順の対応表に対する確認結果とJPEG一件ごとの
+  変換許可は永続化しない。
+- フォルダ変更・再走査・起動時再読込は別`ImageSession`で候補を読込preflightし、成功後だけ
+  session・pairs・foldersを一括導入する。preflightと前後移動は不正候補をmodalなしで飛ばし、直接
+  指定だけ一回通知する。JPEG取消、全候補失敗、blocking count診断では旧状態を保つ。
+- 対応計画は原・入力群の非零同数を維持する。計画成立後に正常な出力を選んだ編集用画像対では未使用
+  入力を復号・検査・保存基準にせず、入力を選んだ経路だけ厳格検査する。出力由来または分類不能の
+  読込失敗は恒久的な画像対cacheへ入れない。
 - 公開包装とWindows構築は新追補の配置と固定hashを検査対象へ追加する。この検査は機能受入や
   Windows実行を代行しない。
+- 比較（暗）は既存Qt描画合成だけで実装し、依存を追加しない。既定無効とし、画像側は表示用cacheだけを
+  変更する。永続状態はschema 2の既定可能な真偽値として画像内容・履歴・保存経路から分離する。
 
 ## 判断門
 
@@ -77,6 +93,14 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 2. ローカル統合: Python 3.11で試験・静的検査・画面外起動が成功し、受入追跡表に説明のない空欄が無い。
    版0.3.0のポインタ入力統合では344試験と静的検査の成功を記録した。版0.4.0は全367試験、
    統合差分全体のRuff、sdist/wheel、画面外GUI起動を
-   `local-verification-2026-08-19-flexible-input.md`へ記録した。
-3. 最終受理: Windows実機、高DPI、実データ、性能、配布物起動、PTR-AT-011、柔軟入力追補を人間が
-   確認するまで `pending`。
+   `local-verification-2026-08-19-flexible-input.md`へ記録した。版0.5.0は全376試験、Ruff、依存固定検査、
+   sdist/wheel、画面外GUI起動を
+   `local-verification-2026-08-19-reference-source-ui.md`へ記録した。
+   版0.5.1は追補version 1.2の固定hash同期後に全410試験、公開66試験、Ruff、依存固定、差分形式、
+   sdist/wheel、画面外GUI煙試験の成功を
+   `local-verification-2026-08-19-output-resume.md`へ記録した。
+   版0.6.0は表示比較追補version 1.0の固定hash同期後に全415試験、公開71試験、Ruff、依存固定、
+   差分形式、sdist/wheel、画面外GUI煙試験、独立画素・状態・性能probe、三系統の独立査読の成功を
+   `local-verification-2026-08-19-display-comparison.md`へ記録した。
+3. 最終受理: Windows実機、高DPI、実データ、性能、配布物起動、PTR-AT-011、柔軟入力追補、
+   表示比較（暗）追補を人間が確認するまで `pending`。

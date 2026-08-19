@@ -46,12 +46,10 @@ from .constants import (
 )
 from .control_panel import EditorControls
 from .dialogs import (
-    ExistingOutputChoice,
     ExternalChangeChoice,
     FolderSelectionDialog,
     InputChangeChoice,
     UnsavedChoice,
-    ask_existing_output,
     ask_external_change,
     ask_input_change,
     ask_unsaved,
@@ -64,10 +62,13 @@ from .dialogs import (
 from .errors import (
     BusyError,
     ExternalModificationError,
+    ExternalOutputModificationError,
     ExternalSourceModificationError,
     ImageValidationError,
+    PairDimensionError,
 )
 from .history import HistoryTrimReport
+from .image_io import fingerprint_file
 from .models import EditSource, ImagePair, PairingMode, PairingResult
 from .operations import (
     SmallComponentsResult,
@@ -98,6 +99,8 @@ class _PreparedPairingOpen:
     session: ImageSession
     pair_errors: dict[int, str]
     output_errors: dict[int, str]
+    transient_errors: dict[int, str]
+    output_error_snapshots: dict[int, tuple[Any, ...]]
 
 
 class MainWindow(QMainWindow):
@@ -135,6 +138,9 @@ class MainWindow(QMainWindow):
         self._current_index: int | None = None
         self._pair_errors: dict[int, str] = {}
         self._output_errors: dict[int, str] = {}
+        self._transient_open_errors: dict[int, str] = {}
+        self._output_error_snapshots: dict[int, tuple[Any, ...]] = {}
+        self._accepted_input_fallbacks: set[int] = set()
         self._active_job: _ActiveJob | None = None
         self._jobs: dict[int, _ActiveJob] = {}
         self._latest_component_token: TaskToken | None = None
@@ -184,7 +190,7 @@ class MainWindow(QMainWindow):
         ):
             self._release_pointer_inputs()
             self.canvas.cancel_navigation_input()
-            self._cancel_active_brush("非アクティブ化により筆跡全体を取り消した")
+            self._cancel_active_brush("筆跡を取消｜理由：画面の非アクティブ化")
         elif watched is self.canvas and event_type in {
             QEvent.Type.FocusOut,
             QEvent.Type.UngrabMouse,
@@ -192,9 +198,9 @@ class MainWindow(QMainWindow):
             self._release_pointer_inputs()
             self.canvas.cancel_navigation_input()
             reason = (
-                "ポインタ捕捉喪失により筆跡全体を取り消した"
+                "筆跡を取消｜理由：ポインタ捕捉の喪失"
                 if event_type == QEvent.Type.UngrabMouse
-                else "焦点喪失により筆跡全体を取り消した"
+                else "筆跡を取消｜理由：焦点の喪失"
             )
             self._cancel_active_brush(reason)
 
@@ -218,7 +224,7 @@ class MainWindow(QMainWindow):
                         and event.key() == Qt.Key.Key_Escape
                         and not event.isAutoRepeat()
                     ):
-                        self._cancel_active_brush("Escにより筆跡全体を取り消した")
+                        self._cancel_active_brush("筆跡を取消｜理由：Esc入力")
                     return True
                 text_input = self._is_editable_input(watched) or self._text_input_has_focus()
                 if self.action_registry.dispatch_event(
@@ -357,15 +363,12 @@ class MainWindow(QMainWindow):
             self._sync_list_selection()
             return
         if self._stroke_before is not None:
-            self._message("筆を放して操作を確定してから画像を移動せよ")
+            self._message("画像移動不可：筆操作が未確定")
             self._sync_list_selection()
             return
         pair = self._pairs[index]
-        source = self._choose_edit_source(pair)
-        if source is None:
-            self._sync_list_selection()
-            return
-        jpeg_confirmed = self._preconfirm_ternary_jpeg(pair)
+        source = self._choose_edit_source(pair, index)
+        jpeg_confirmed = self._preconfirm_ternary_jpeg(pair, source)
         if jpeg_confirmed is None:
             self._sync_list_selection()
             return
@@ -384,7 +387,7 @@ class MainWindow(QMainWindow):
             self._message("別の処理が完了するまで保存できない")
             return
         if self._stroke_before is not None:
-            self._message("筆を放して操作を確定してから保存せよ")
+            self._message("保存不可：筆操作が未確定")
             return
         assert self.session.pair is not None
         allow_existing_output = False
@@ -424,6 +427,7 @@ class MainWindow(QMainWindow):
             "view.toggle-original": self.controls.original_visible.toggle,
             "view.toggle-label": self.controls.ternary_visible.toggle,
             "view.toggle-pseudocolor": self.controls.pseudo_enabled.toggle,
+            "view.toggle-darken-comparison": self.controls.darken_comparison.toggle,
             "view.toggle-grid-auto": self.controls.grid_enabled.toggle,
             "view.toggle-small-components": self.controls.small_components.toggle,
             "view.decrease-original-opacity": lambda: self._adjust_opacity(-5),
@@ -469,6 +473,7 @@ class MainWindow(QMainWindow):
             "view.toggle-original",
             "view.toggle-label",
             "view.toggle-pseudocolor",
+            "view.toggle-darken-comparison",
             "view.toggle-grid-auto",
             "view.toggle-small-components",
         ):
@@ -551,6 +556,7 @@ class MainWindow(QMainWindow):
             "view.toggle-original",
             "view.toggle-label",
             "view.toggle-pseudocolor",
+            "view.toggle-darken-comparison",
             "view.toggle-grid-auto",
             "view.toggle-small-components",
             "view.decrease-original-opacity",
@@ -674,6 +680,7 @@ class MainWindow(QMainWindow):
         self.controls.ternary_visibility_changed.connect(self._set_ternary_visibility)
         self.controls.opacity_changed.connect(self._set_opacity)
         self.controls.pseudo_changed.connect(self._set_pseudo)
+        self.controls.darken_comparison_changed.connect(self._set_darken_comparison)
         self.controls.pseudo_palette_changed.connect(self._set_pseudo_palette)
         self.controls.pseudo_settings_requested.connect(self._open_settings)
         self.controls.grid_changed.connect(self._set_grid)
@@ -796,7 +803,7 @@ class MainWindow(QMainWindow):
             self._message("処理中はフォルダを変更できない")
             return
         if self._stroke_before is not None:
-            self._message("筆を放して操作を確定してからフォルダを変更せよ")
+            self._message("フォルダ変更不可：筆操作が未確定")
             return
         defaults = self._stored_folders()
         dialog = FolderSelectionDialog(
@@ -812,21 +819,21 @@ class MainWindow(QMainWindow):
         try:
             result = self._prepare_pairing(folders, dialog.pairing_mode)
         except Exception as exc:  # noqa: BLE001 - フォルダ取引境界
-            show_error(self, "フォルダを利用できない", str(exc))
+            show_error(self, "フォルダエラー", str(exc))
             return
         if result is None:
             return
         if result.blocking_reason is not None:
             show_error(
                 self,
-                "画像群を読み込めない",
+                "読込エラー",
                 self._pairing_failure_message(result),
             )
             return
         if not result.pairs:
             show_error(
                 self,
-                "有効な画像対がない",
+                "読込対象なし",
                 self._pairing_failure_message(result),
             )
             return
@@ -849,7 +856,7 @@ class MainWindow(QMainWindow):
 
         result = plan_pairing(*folders, mode=mode)
         if result.confirmation_required and not confirm_natural_pairing(self, result):
-            self._message("自然順の対応確認を中止した。現在の画像集合は変更していない")
+            self._message("自然順の対応確認を中止：現在の画像集合を維持")
             return None
         return result
 
@@ -860,7 +867,7 @@ class MainWindow(QMainWindow):
         lines = [
             result.blocking_reason or "画像群を対応付けられない",
             (
-                "対応形式画像: "
+                "検出した対応候補: "
                 f"原画像={result.original_candidate_count}件、"
                 f"三値画像={result.ternary_candidate_count}件"
             ),
@@ -870,7 +877,7 @@ class MainWindow(QMainWindow):
         for excluded in result.excluded:
             if excluded.reason_code in gate_codes:
                 continue
-            paths = ", ".join(str(path) for path in excluded.paths) or "(pathなし)"
+            paths = ", ".join(str(path) for path in excluded.paths) or "(該当ファイルなし)"
             diagnostics.append(f"- {excluded.message}: {paths}")
         if diagnostics:
             lines.extend(("対象外・衝突の内訳:", *diagnostics))
@@ -898,6 +905,7 @@ class MainWindow(QMainWindow):
             original_visible=self.controls.original_visible.isChecked(),
             ternary_visible=self.controls.ternary_visible.isChecked(),
             pseudo_enabled=self.controls.pseudo_enabled.isChecked(),
+            darken_comparison_enabled=self.controls.darken_comparison.isChecked(),
             pseudo_colors=tuple(hex_from_rgb(color) for color in self.controls.pseudo_palette),
             original_opacity=self.controls.opacity_slider.value(),
             grid_auto=self.controls.grid_enabled.isChecked(),
@@ -920,6 +928,7 @@ class MainWindow(QMainWindow):
         self.controls.original_visible.setChecked(snapshot.original_visible)
         self.controls.ternary_visible.setChecked(snapshot.ternary_visible)
         self.controls.pseudo_enabled.setChecked(snapshot.pseudo_enabled)
+        self.controls.darken_comparison.setChecked(snapshot.darken_comparison_enabled)
         self.controls.set_palette(tuple(rgb_from_hex(color) for color in snapshot.pseudo_colors))
         self.controls.opacity_slider.setValue(snapshot.original_opacity)
         self.controls.grid_enabled.setChecked(snapshot.grid_auto)
@@ -955,21 +964,21 @@ class MainWindow(QMainWindow):
         try:
             result = self._prepare_pairing(folders, self._stored_pairing_mode())
         except Exception as exc:  # noqa: BLE001 - 起動時は非モーダル通知で継続
-            self._message(f"保存済みフォルダの自動再走査に失敗した: {exc}")
+            self._message(f"自動再走査エラー：{exc}")
             return
         if result is None:
             return
         if result.blocking_reason is not None:
             show_error(
                 self,
-                "保存済み画像群を読み込めない",
+                "読込エラー",
                 self._pairing_failure_message(result),
             )
             return
         if not result.pairs:
             show_error(
                 self,
-                "保存済みフォルダに有効な画像対がない",
+                "読込対象なし",
                 self._pairing_failure_message(result),
             )
             return
@@ -983,7 +992,7 @@ class MainWindow(QMainWindow):
         if folders is None:
             stored = self._stored_folders()
             if not all(stored):
-                self._message("再走査する入出力フォルダが未指定だ")
+                self._message("再走査不可：入出力フォルダが未指定")
                 return
             folders = tuple(Path(value) for value in stored)
 
@@ -991,21 +1000,21 @@ class MainWindow(QMainWindow):
         try:
             result = self._prepare_pairing(folders, self._pairing_mode)
         except Exception as exc:  # noqa: BLE001 - フォルダ取引境界
-            show_error(self, "再走査に失敗", str(exc))
+            show_error(self, "再走査エラー", str(exc))
             return
         if result is None:
             return
         if result.blocking_reason is not None:
             show_error(
                 self,
-                "画像群を再走査できない",
+                "再走査エラー",
                 self._pairing_failure_message(result),
             )
             return
         if not result.pairs:
             show_error(
                 self,
-                "再走査で有効な画像対がない",
+                "再走査対象なし",
                 self._pairing_failure_message(result),
             )
             return
@@ -1026,11 +1035,11 @@ class MainWindow(QMainWindow):
 
         pair_errors: dict[int, str] = {}
         output_errors: dict[int, str] = {}
+        transient_errors: dict[int, str] = {}
+        output_error_snapshots: dict[int, tuple[Any, ...]] = {}
         for index, pair in enumerate(result.pairs):
             source = self._choose_edit_source(pair)
-            if source is None:
-                return None
-            jpeg_confirmed = self._preconfirm_ternary_jpeg(pair)
+            jpeg_confirmed = self._preconfirm_ternary_jpeg(pair, source)
             if jpeg_confirmed is None:
                 return None
             prepared_session = ImageSession()
@@ -1042,20 +1051,24 @@ class MainWindow(QMainWindow):
                         expected_size=self.expected_size,
                         allow_jpeg_import=jpeg_confirmed,
                     )
-                except ImageValidationError as exc:
-                    if source == EditSource.OUTPUT and exc.path == pair.output_path:
+                except (
+                    ExternalOutputModificationError,
+                    ImageValidationError,
+                    PairDimensionError,
+                ) as exc:
+                    if self._is_output_read_error(exc, pair, source):
                         output_errors[index] = str(exc)
-                        if self._ask_input_fallback(exc):
-                            source = EditSource.INPUT
-                            continue
-                        show_error(self, "編集済み画像を利用できない", str(exc))
-                        return None
+                        output_error_snapshots[index] = self._output_snapshot(
+                            pair.output_path
+                        )
+                        break
                     pair_errors[index] = str(exc)
-                    show_error(self, "画像を利用できない", str(exc))
                     break
                 except Exception as exc:  # noqa: BLE001 - 読込preflight取引境界
-                    pair_errors[index] = str(exc)
-                    show_error(self, "画像を開けない", str(exc))
+                    transient_errors[index] = self._unexpected_read_error_message(
+                        pair,
+                        exc,
+                    )
                     break
                 return _PreparedPairingOpen(
                     index=index,
@@ -1063,8 +1076,27 @@ class MainWindow(QMainWindow):
                     session=prepared_session,
                     pair_errors=pair_errors,
                     output_errors=output_errors,
+                    transient_errors=transient_errors,
+                    output_error_snapshots=output_error_snapshots,
                 )
-        self._message("開ける画像対がない。現在の画像集合は変更していない")
+        diagnostics: list[str] = []
+        for kind, errors in (
+            ("画像対", pair_errors),
+            ("編集済み画像", output_errors),
+            ("読込処理", transient_errors),
+        ):
+            for index, message in sorted(errors.items()):
+                pair_name = result.pairs[index].ternary_stem
+                compact_message = " / ".join(message.splitlines())
+                diagnostics.append(f"{pair_name}（{kind}）: {compact_message}")
+        self._message(
+            "｜".join(
+                (
+                    "読込可能な画像対なし：現在の画像集合を維持",
+                    *diagnostics,
+                )
+            )
+        )
         return None
 
     def _commit_prepared_pairing(
@@ -1081,6 +1113,8 @@ class MainWindow(QMainWindow):
             return
         self._pair_errors.update(prepared.pair_errors)
         self._output_errors.update(prepared.output_errors)
+        self._transient_open_errors.update(prepared.transient_errors)
+        self._output_error_snapshots.update(prepared.output_error_snapshots)
         self.session = prepared.session
         self._finish_open_pair(prepared.index, prepared.source, had_image=False)
 
@@ -1098,6 +1132,9 @@ class MainWindow(QMainWindow):
         self._pairs = list(result.pairs)
         self._pair_errors.clear()
         self._output_errors.clear()
+        self._transient_open_errors.clear()
+        self._output_error_snapshots.clear()
+        self._accepted_input_fallbacks.clear()
         self._folders = tuple(Path(folder) for folder in folders)
         self._write_folders(self._folders, self._pairing_mode)
         self._rebuild_image_list()
@@ -1105,13 +1142,13 @@ class MainWindow(QMainWindow):
         if result.output_checked and not result.output_writable:
             QMessageBox.warning(
                 self,
-                "出力先へ書き込めない",
-                result.output_warning or "出力フォルダの書込検査に失敗した。保存を無効化する。",
+                "出力先エラー",
+                result.output_warning or "出力フォルダへ書き込めないため、保存は無効です。",
             )
         if result.blocking_reason is not None:
             self._message(result.blocking_reason)
         elif not result.pairs:
-            self._message("有効な画像対がない。対象外理由を一覧で確認せよ。")
+            self._message("有効な画像対なし：対象外理由は一覧に表示")
         else:
             mode_text = (
                 "自然順（確認済み）"
@@ -1156,6 +1193,8 @@ class MainWindow(QMainWindow):
         suffix = f"｜利用不能: {error}" if error else ""
         if index in self._output_errors:
             suffix += f"｜{self._output_errors[index]}"
+        if index in self._transient_open_errors:
+            suffix += f"｜一時的読込エラー: {self._transient_open_errors[index]}"
         current = "▶ " if index == self._current_index else "  "
         visible_position = sum(candidate not in self._pair_errors for candidate in range(index + 1))
         jpeg = (
@@ -1176,24 +1215,105 @@ class MainWindow(QMainWindow):
         if isinstance(index, int):
             self.request_open_index(index)
 
-    def _choose_edit_source(self, pair: ImagePair) -> EditSource | None:
+    def _choose_edit_source(
+        self,
+        pair: ImagePair,
+        index: int | None = None,
+    ) -> EditSource:
+        """既存出力を優先する。同じ不正出力への承認済みfallbackは再確認しない。"""
+
         if not pair.output_path.exists():
+            if index is not None:
+                self._clear_output_error(index)
             return EditSource.INPUT
-        choice = ask_existing_output(self, pair.output_path)
-        if choice == ExistingOutputChoice.OUTPUT:
+        if index is None or index not in self._accepted_input_fallbacks:
             return EditSource.OUTPUT
-        if choice == ExistingOutputChoice.INPUT:
+        if self._output_error_snapshots.get(index) == self._output_snapshot(
+            pair.output_path
+        ):
             return EditSource.INPUT
-        return None
+        self._clear_output_error(index)
+        return EditSource.OUTPUT
 
-    def _preconfirm_ternary_jpeg(self, pair: ImagePair) -> bool | None:
-        """JPEGなら確認結果、PNGならFalse、取消ならNoneを返す。"""
+    @staticmethod
+    def _output_snapshot(path: Path) -> tuple[Any, ...]:
+        """不正出力の同一性だけを判定する安定したsnapshotを返す。"""
 
-        if pair.ternary_path.suffix.casefold() not in TERNARY_JPEG_EXTENSIONS:
+        try:
+            fingerprint = fingerprint_file(path)
+        except OSError as exc:
+            try:
+                stat = Path(path).stat()
+            except OSError as stat_exc:
+                return ("unavailable", type(stat_exc).__name__, stat_exc.errno)
+            return (
+                "unreadable",
+                stat.st_dev,
+                stat.st_ino,
+                stat.st_size,
+                stat.st_mtime_ns,
+                type(exc).__name__,
+                exc.errno,
+            )
+        if fingerprint is None:
+            return ("missing",)
+        return ("file", fingerprint.sha256)
+
+    def _record_output_error(
+        self,
+        index: int,
+        pair: ImagePair,
+        error: Exception,
+    ) -> None:
+        self._output_errors[index] = str(error)
+        self._transient_open_errors.pop(index, None)
+        self._output_error_snapshots[index] = self._output_snapshot(pair.output_path)
+        self._accepted_input_fallbacks.discard(index)
+
+    def _clear_output_error(self, index: int) -> None:
+        self._output_errors.pop(index, None)
+        self._output_error_snapshots.pop(index, None)
+        self._accepted_input_fallbacks.discard(index)
+
+    @staticmethod
+    def _is_output_read_error(
+        error: Exception,
+        pair: ImagePair,
+        source: EditSource,
+    ) -> bool:
+        if source != EditSource.OUTPUT:
+            return False
+        if isinstance(error, PairDimensionError):
+            return Path(error.ternary_path) == Path(pair.output_path)
+        if isinstance(error, (ImageValidationError, ExternalOutputModificationError)):
+            return Path(error.path) == Path(pair.output_path)
+        return False
+
+    @staticmethod
+    def _unexpected_read_error_message(pair: ImagePair, error: Exception) -> str:
+        return (
+            "画像対の読込処理に失敗しました\n"
+            f"原画像: {pair.original_path}\n"
+            f"入力三値画像: {pair.ternary_path}\n"
+            f"編集済み画像: {pair.output_path}\n"
+            f"理由: {error}"
+        )
+
+    def _preconfirm_ternary_jpeg(
+        self,
+        pair: ImagePair,
+        source: EditSource,
+    ) -> bool | None:
+        """入力JPEGを編集元とする時だけ確認し、取消ならNoneを返す。"""
+
+        if (
+            source != EditSource.INPUT
+            or pair.ternary_path.suffix.casefold() not in TERNARY_JPEG_EXTENSIONS
+        ):
             return False
         if confirm_ternary_jpeg_import(self, pair.ternary_path):
             return True
-        self._message("JPEG三値画像の取込を中止した。現在の画像は変更していない")
+        self._message("JPEG三値画像の取込を中止：現在の画像を維持")
         return None
 
     def _open_pair(
@@ -1202,14 +1322,17 @@ class MainWindow(QMainWindow):
         source: EditSource,
         *,
         jpeg_confirmed: bool = False,
+        report_pair_error: bool = True,
+        allow_output_fallback: bool = True,
     ) -> bool:
         if not 0 <= index < len(self._pairs):
             return False
         pair = self._pairs[index]
+        self._transient_open_errors.pop(index, None)
         is_ternary_jpeg = pair.ternary_path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS
-        if is_ternary_jpeg and not jpeg_confirmed:
+        if source == EditSource.INPUT and is_ternary_jpeg and not jpeg_confirmed:
             if not confirm_ternary_jpeg_import(self, pair.ternary_path):
-                self._message("JPEG三値画像の取込を中止した。現在の画像は変更していない")
+                self._message("JPEG三値画像の取込を中止：現在の画像を維持")
                 self._sync_list_selection()
                 return False
             jpeg_confirmed = True
@@ -1221,32 +1344,45 @@ class MainWindow(QMainWindow):
                 expected_size=self.expected_size,
                 allow_jpeg_import=jpeg_confirmed,
             )
-        except ImageValidationError as exc:
-            if source == EditSource.OUTPUT and exc.path == pair.output_path:
-                self._output_errors[index] = str(exc)
+        except (
+            ExternalOutputModificationError,
+            ImageValidationError,
+            PairDimensionError,
+        ) as exc:
+            if self._is_output_read_error(exc, pair, source):
+                self._record_output_error(index, pair, exc)
                 self._refresh_pair_items()
-                if self._ask_input_fallback(exc):
+                if allow_output_fallback and self._ask_input_fallback(exc):
+                    self._accepted_input_fallbacks.add(index)
                     return self._open_pair(
                         index,
                         EditSource.INPUT,
                         jpeg_confirmed=jpeg_confirmed,
+                        report_pair_error=report_pair_error,
+                        allow_output_fallback=allow_output_fallback,
                     )
-                show_error(self, "編集済み画像を利用できない", str(exc))
                 self._sync_list_selection()
                 self._update_interface()
                 return False
             self._pair_errors[index] = str(exc)
             self._refresh_pair_items()
-            show_error(self, "画像を利用できない", str(exc))
+            if report_pair_error:
+                show_error(self, "画像対読込エラー", str(exc))
             if not self.session.is_loaded:
                 self.canvas.clear_images()
             self._sync_list_selection()
             self._update_interface()
             return False
         except Exception as exc:  # noqa: BLE001 - 画像切替取引境界
-            self._pair_errors[index] = str(exc)
+            message = self._unexpected_read_error_message(pair, exc)
+            self._transient_open_errors[index] = message
             self._refresh_pair_items()
-            show_error(self, "画像を開けない", str(exc))
+            if report_pair_error:
+                show_error(
+                    self,
+                    "読込処理エラー",
+                    message,
+                )
             if not self.session.is_loaded:
                 self.canvas.clear_images()
             self._sync_list_selection()
@@ -1270,8 +1406,9 @@ class MainWindow(QMainWindow):
         assert self.session.labels is not None
         self._current_index = index
         self._pair_errors.pop(index, None)
+        self._transient_open_errors.pop(index, None)
         if source == EditSource.OUTPUT:
-            self._output_errors.pop(index, None)
+            self._clear_output_error(index)
         self._needs_initial_overwrite_confirmation = (
             source == EditSource.INPUT and pair.output_path.exists()
         )
@@ -1303,15 +1440,21 @@ class MainWindow(QMainWindow):
         self._request_components()
         return True
 
-    def _ask_input_fallback(self, error: ImageValidationError) -> bool:
-        answer = QMessageBox.question(
-            self,
-            "編集済み画像を利用できない",
-            f"{error}\n\n入力三値画像から開くか。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Yes,
+    def _ask_input_fallback(self, error: Exception) -> bool:
+        box = QMessageBox(self)
+        box.setWindowTitle("編集済み画像エラー")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(str(error))
+        box.setInformativeText("入力三値画像へ切り替えて読み込みますか。")
+        fallback = box.addButton(
+            "入力三値画像を開く",
+            QMessageBox.ButtonRole.AcceptRole,
         )
-        return answer == QMessageBox.StandardButton.Yes
+        cancel = box.addButton("中止", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(fallback)
+        box.setEscapeButton(cancel)
+        box.exec()
+        return box.clickedButton() is fallback
 
     def _with_unsaved_resolution(
         self,
@@ -1342,11 +1485,14 @@ class MainWindow(QMainWindow):
         first_target = self._adjacent_pair_index(self._current_index, direction)
         if first_target is None:
             return
-        first_source = self._choose_edit_source(self._pairs[first_target])
-        if first_source is None:
-            self._sync_list_selection()
-            return
-        first_jpeg_confirmed = self._preconfirm_ternary_jpeg(self._pairs[first_target])
+        first_source = self._choose_edit_source(
+            self._pairs[first_target],
+            first_target,
+        )
+        first_jpeg_confirmed = self._preconfirm_ternary_jpeg(
+            self._pairs[first_target],
+            first_source,
+        )
         if first_jpeg_confirmed is None:
             self._sync_list_selection()
             return
@@ -1356,18 +1502,31 @@ class MainWindow(QMainWindow):
             source = first_source
             jpeg_confirmed = first_jpeg_confirmed
             while True:
-                if self._open_pair(target, source, jpeg_confirmed=jpeg_confirmed):
+                if self._open_pair(
+                    target,
+                    source,
+                    jpeg_confirmed=jpeg_confirmed,
+                    report_pair_error=False,
+                    allow_output_fallback=False,
+                ):
                     return
-                if target not in self._pair_errors:
+                if not any(
+                    target in errors
+                    for errors in (
+                        self._pair_errors,
+                        self._output_errors,
+                        self._transient_open_errors,
+                    )
+                ):
                     return
                 next_target = self._adjacent_pair_index(target, direction)
                 if next_target is None:
                     self._sync_list_selection()
                     return
-                next_source = self._choose_edit_source(self._pairs[next_target])
-                if next_source is None:
-                    self._sync_list_selection()
-                    return
+                next_source = self._choose_edit_source(
+                    self._pairs[next_target],
+                    next_target,
+                )
                 target = next_target
                 source = next_source
                 jpeg_confirmed = False
@@ -1429,7 +1588,7 @@ class MainWindow(QMainWindow):
         try:
             self._render_brush_preview((x, y), None)
         except Exception:
-            self._cancel_active_brush("筆描画の例外により筆跡全体を取り消した")
+            self._cancel_active_brush("筆入力エラー｜筆跡を取消｜編集への反映なし")
             raise
         self._update_interface()
 
@@ -1440,7 +1599,7 @@ class MainWindow(QMainWindow):
         try:
             self._render_brush_preview(self._stroke_last_point, point)
         except Exception:
-            self._cancel_active_brush("筆描画の例外により筆跡全体を取り消した")
+            self._cancel_active_brush("筆入力エラー｜筆跡を取消｜編集への反映なし")
             raise
         self._stroke_last_point = point
 
@@ -1474,7 +1633,7 @@ class MainWindow(QMainWindow):
             if self.session.labels is not None and self.session.labels.shape == before.shape:
                 self.session.labels[...] = before
                 self.canvas.refresh_labels(self.session.labels)
-            self._message("筆確定の例外により筆跡全体を取り消した")
+            self._message("筆確定エラー｜筆跡を取消｜編集への反映なし")
             self._update_interface()
             raise
         if self.session.revision != before_revision:
@@ -1483,7 +1642,7 @@ class MainWindow(QMainWindow):
             self._message("同色のため変更しなかった")
             self._update_interface()
 
-    def _cancel_brush(self, reason: str = "筆跡全体を取り消した") -> None:
+    def _cancel_brush(self, reason: str = "筆跡を取消") -> None:
         if self._stroke_before is None:
             return
         before = self._stroke_before
@@ -1502,7 +1661,7 @@ class MainWindow(QMainWindow):
             self._message("下端100画素・強制無領域は編集できない")
             return
         if self._active_job is not None:
-            self._message("別の処理が完了してから塗り潰せ")
+            self._message("塗り潰し不可：別の処理を実行中")
             return
         self._start_job(
             "filling",
@@ -1524,10 +1683,10 @@ class MainWindow(QMainWindow):
         if not self._labels_are_visible() or self.session.labels is None:
             return
         if self._stroke_before is not None:
-            self._message("筆を放して操作を確定してから境界を生成せよ")
+            self._message("境界生成不可：筆操作が未確定")
             return
         if self._active_job is not None:
-            self._message("別の処理が完了してから境界を生成せよ")
+            self._message("境界生成不可：別の処理を実行中")
             return
         function = (
             generate_boundary_none_side if mode == "none_side" else generate_boundary_non_none_side
@@ -1546,7 +1705,7 @@ class MainWindow(QMainWindow):
         before_revision = self.session.revision
         trim_report = self.session.apply_labels(labels, description)
         if self.session.revision == before_revision:
-            self._message(f"{description}: 対象画素なし")
+            self._message(f"{description}｜対象画素なし｜変更なし")
             return
         assert self.session.labels is not None
         self.canvas.refresh_labels(self.session.labels)
@@ -1644,9 +1803,9 @@ class MainWindow(QMainWindow):
     def _save_succeeded(self, continuation: Callable[[], None] | None) -> None:
         self._needs_initial_overwrite_confirmation = False
         if self._current_index is not None:
-            self._output_errors.pop(self._current_index, None)
+            self._clear_output_error(self._current_index)
         self._refresh_pair_items()
-        self._message("保存した")
+        self._message("保存完了")
         self._update_interface()
         if continuation is not None:
             continuation()
@@ -1675,14 +1834,14 @@ class MainWindow(QMainWindow):
                     continuation=continuation,
                 )
                 return
-            self._message("保存を中止した。未保存変更は保持している")
+            self._message("保存を中止：未保存の変更を維持")
             return
         if isinstance(exception, ExternalModificationError):
             assert self.session.pair is not None
             if self._current_index is not None:
                 # 以前の出力内容に対する検証失敗は、外部変更を検出した時点で
                 # 既に陳腐化している。存在状態を再表示する前に棄却する。
-                self._output_errors.pop(self._current_index, None)
+                self._clear_output_error(self._current_index)
             # 出力の新規出現・削除・置換は、保存を中止しても一覧上の事実へ
             # 直ちに反映する。保存許可と表示中の存在状態を同じ状態に潰さない。
             self._refresh_pair_items()
@@ -1699,10 +1858,10 @@ class MainWindow(QMainWindow):
                     continuation=continuation,
                 )
                 return
-            self._message("保存を中止した。未保存変更は保持している")
+            self._message("保存を中止：未保存の変更を維持")
             return
-        show_error(self, "保存に失敗", str(exception))
-        self._message("保存に失敗した。未保存変更は保持している")
+        show_error(self, "保存エラー", str(exception))
+        self._message("保存エラー：未保存の変更を維持")
         self._update_interface()
 
     def _start_job(
@@ -1754,7 +1913,7 @@ class MainWindow(QMainWindow):
         worker.signals.failed.connect(self._job_failed)
         worker.signals.finished.connect(self._worker_finished)
         if not is_component:
-            self._message(f"{description}を実行中…")
+            self._message(f"{description}｜実行中…")
         self._update_interface()
         self.thread_pool.start(worker)
 
@@ -1765,7 +1924,7 @@ class MainWindow(QMainWindow):
         job, is_current, is_component, was_latest_component = taken
         if not is_current:
             if not is_component:
-                self._message(f"{job.description}の陳腐化した結果を破棄した")
+                self._message(f"{job.description}｜旧い処理結果を破棄｜現在の編集へ未反映")
             if is_component and was_latest_component:
                 self._component_rerun_needed = True
             self._after_job_callback()
@@ -1775,7 +1934,7 @@ class MainWindow(QMainWindow):
         try:
             job.on_success(result.value)
         except Exception as exc:  # noqa: BLE001 - 非同期結果適用境界
-            show_error(self, f"{job.description}の反映に失敗", str(exc))
+            show_error(self, "処理結果エラー", f"{job.description}\n{exc}")
         self._after_job_callback()
 
     def _job_failed(self, result: TaskFailure) -> None:
@@ -1785,7 +1944,7 @@ class MainWindow(QMainWindow):
         job, is_current, is_component, was_latest_component = taken
         if not is_current:
             if not is_component:
-                self._message(f"{job.description}の陳腐化した失敗を破棄した")
+                self._message(f"{job.description}｜旧い失敗通知を破棄｜現在の処理へ影響なし")
             if is_component and was_latest_component:
                 self._component_rerun_needed = True
             self._after_job_callback()
@@ -1793,7 +1952,7 @@ class MainWindow(QMainWindow):
         try:
             job.on_failure(result.exception)
         except Exception as exc:  # noqa: BLE001 - 非同期失敗処理境界
-            show_error(self, f"{job.description}の失敗処理に失敗", str(exc))
+            show_error(self, "失敗処理エラー", f"{job.description}\n{exc}")
         self._after_job_callback()
 
     def _take_job(
@@ -1838,8 +1997,8 @@ class MainWindow(QMainWindow):
         )
 
     def _default_job_failure(self, exception: Exception) -> None:
-        show_error(self, "処理に失敗", str(exception))
-        self._message("処理に失敗した。編集内容は変更していない")
+        show_error(self, "処理エラー", str(exception))
+        self._message("処理エラー：編集内容を維持")
 
     def _after_job_callback(self) -> None:
         self._update_interface()
@@ -1874,7 +2033,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("view/ternaryVisible", visible)
         if not visible:
             self.protection_status.setText("保護: 三値画像非表示・編集停止")
-            self._message("三値画像が非表示のため画素編集とUndo・Redoを停止した")
+            self._message("三値画像を非表示｜画素編集・元に戻す・やり直すを停止")
         self._update_interface()
 
     def _set_opacity(self, percent: int) -> None:
@@ -1884,6 +2043,11 @@ class MainWindow(QMainWindow):
     def _set_pseudo(self, enabled: bool) -> None:
         self.canvas.set_pseudo_enabled(enabled)
         self.settings.setValue("view/pseudoEnabled", enabled)
+        self._update_interface()
+
+    def _set_darken_comparison(self, enabled: bool) -> None:
+        self.canvas.set_darken_comparison_enabled(enabled)
+        self.settings.setValue("view/darkenComparison", enabled)
         self._update_interface()
 
     def _set_pseudo_palette(self, palette: tuple[tuple[int, int, int], ...]) -> None:
@@ -2018,6 +2182,9 @@ class MainWindow(QMainWindow):
         self._operation_actions["view.toggle-pseudocolor"].setChecked(
             self.controls.pseudo_enabled.isChecked()
         )
+        self._operation_actions["view.toggle-darken-comparison"].setChecked(
+            self.controls.darken_comparison.isChecked()
+        )
         self._operation_actions["view.toggle-grid-auto"].setChecked(
             self.controls.grid_enabled.isChecked()
         )
@@ -2098,6 +2265,7 @@ class MainWindow(QMainWindow):
         self.controls.ternary_visible.setChecked(snapshot.ternary_visible)
         self.controls.opacity_slider.setValue(snapshot.original_opacity)
         self.controls.pseudo_enabled.setChecked(snapshot.pseudo_enabled)
+        self.controls.darken_comparison.setChecked(snapshot.darken_comparison_enabled)
         self.controls.grid_enabled.setChecked(snapshot.grid_auto)
         self.controls.small_components.setChecked(snapshot.small_components)
         self.controls.set_palette(tuple(rgb_from_hex(color) for color in snapshot.pseudo_colors))
@@ -2175,7 +2343,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt API
         if self._stroke_before is not None:
-            self._cancel_brush("終了要求により未確定の筆跡を取り消した")
+            self._cancel_brush("筆跡を取消｜理由：終了操作")
         if self._allow_close_once:
             self._persist_current_settings()
             self._remove_application_event_filter()
@@ -2183,7 +2351,7 @@ class MainWindow(QMainWindow):
             return
         if self._active_job is not None:
             self._close_after_activity = True
-            self._message("処理結果が確定してから終了確認を続ける")
+            self._message("終了待機｜処理結果の確定後に終了確認を再開")
             event.ignore()
             return
         if self.session.is_loaded and self.session.is_dirty:
@@ -2213,7 +2381,11 @@ class MainWindow(QMainWindow):
             self.settings_repository.save(snapshot)
             self.applied_settings = snapshot
         except Exception as exc:  # noqa: BLE001 - 終了時設定保存境界
-            self._message(f"設定を永続化できなかった: {exc}")
+            show_error(
+                self,
+                "設定保存エラー",
+                f"次回起動には現在の設定を反映できません。\n理由: {exc}",
+            )
 
     def _accept_close(self) -> None:
         self._component_rerun_needed = False

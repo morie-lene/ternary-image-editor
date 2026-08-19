@@ -404,7 +404,8 @@ def _spec(
     )
 
 
-# Specification 15.7 contains exactly 38 rows.  Do not invent a 39th command.
+# Specification 15.7 defines the first 38 rows.  The display-comparison
+# addendum contributes one independently assignable, unbound-by-default row.
 OPERATION_SPECS: tuple[OperationSpec, ...] = (
     _spec(
         "ファイル", "入出力フォルダ設定", "file.configure-folders", OperationType.SINGLE, "Ctrl+O"
@@ -453,6 +454,12 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     _spec("表示", "原画像表示を切り替える", "view.toggle-original", OperationType.SINGLE, "O"),
     _spec("表示", "三値画像表示を切り替える", "view.toggle-label", OperationType.SINGLE, "T"),
     _spec("表示", "疑似色表示を切り替える", "view.toggle-pseudocolor", OperationType.SINGLE, "P"),
+    _spec(
+        "表示",
+        "比較（暗）を切り替える",
+        "view.toggle-darken-comparison",
+        OperationType.SINGLE,
+    ),
     _spec(
         "表示", "画素格子自動表示を切り替える", "view.toggle-grid-auto", OperationType.SINGLE, "G"
     ),

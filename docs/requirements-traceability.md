@@ -2,14 +2,17 @@
 
 基線正本は `ternary_image_editor_spec_v1_5.html`（SHA-256:
 `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`）。v1.1は履歴であり、
-現在の受理根拠には用いない。柔軟入力、対応付け、三値JPEG、寸法、下端保護は
-`flexible-input-pairing-addendum.md`（`TIE-ADD-FLEX-001`、SHA-256:
-`9f21514f8abdc473a56184514d6499985f893797c274c1b74cc79f6796034384`）が、マウス入力割当は
+現在の受理根拠には用いない。柔軟入力、対応付け、参照原画像、三値JPEG、編集元優先、寸法、下端保護は
+`flexible-input-pairing-addendum.md`（`TIE-ADD-FLEX-001` version 1.2、SHA-256:
+`a2d8a8c1c1c6202a770bac69f14f5cfed71f8f1428e9ffee49b4a06875849798`）が、マウス入力割当は
 `mouse-input-bindings-addendum.md`
 （`TIE-ADD-PTR-001`、SHA-256:
 `91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`）がv1.5を限定
-上書きする。v1.5のHTMLとhashは変更しない。
-この追跡表の現行対象応用版は `0.4.0`。
+上書きする。表示比較（暗）は`display-comparison-addendum.md`（`TIE-ADD-DISP-CMP-001`
+version 1.0、SHA-256:
+`26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`）が表示合成・表示設定・
+操作件数だけを限定上書きする。v1.5のHTMLとhashは変更しない。
+この追跡表の現行対象応用版は `0.6.0`。
 
 状態語は次の意味に限る。
 
@@ -18,14 +21,16 @@
 - `automated-partial`: 下位契約は自動検証したが、受入条件全体の端から端までの試験ではない。
 - `windows-pending`: Windows実機または配布候補でなければ閉じられない。
 - `planned`: 契約と検証対象は記録したが、実装または証拠をまだ確認していない。
+- `superseded`: 旧版の要求身元と証拠を履歴として保つが、現行受入には用いない。
 
 いずれも最終人間受理を表さない。公開取得物には入力契約用の
-`tests/test_flexible_input_contract.py`と包装検査用の`tests/test_packaging.py`を含める。
+`tests/test_flexible_input_contract.py`、表示比較契約用の`tests/test_display_comparison_contract.py`、
+包装検査用の`tests/test_packaging.py`を含める。
 `FLEX-AT-*`でこの公開入力契約試験を明記した項目は公開cloneで再現できる。それ以外の機能要求に
 対する`automated-local`は、特記がない限り非公開の開発作業木で得た機能試験証拠を表し、公開包装
 試験の成功から導出しない。
 
-固定hashを持つマウス入力割当追補9節の「試験コードを含めない」という一般記述は、現在の二つの
+固定hashを持つマウス入力割当追補9節の「試験コードを含めない」という一般記述は、現在の三つの
 公開試験を反映していない。追補本文を同一hashのまま改変せず、本追跡表とREADMEでこの範囲差を
 明示する。
 
@@ -38,6 +43,24 @@ Ruff、sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功し
 未完了境界は[柔軟入力・対応付けローカル検証記録](local-verification-2026-08-19-flexible-input.md)に
 分離する。この統合成功は、各行の`automated-partial`や`windows-pending`を自動で閉じない。
 
+版0.5.0の局所統合証拠は同日のmacOS作業木で、全376試験、Ruff、依存固定、差分形式、
+sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功したことである。公開包装へ収載する試験は
+32件で、全376件とは証拠範囲を分ける。詳細は
+[参照原画像・編集元優先・界面文ローカル検証記録](local-verification-2026-08-19-reference-source-ui.md)に
+分離する。Windows実機判断門は閉じていない。
+
+版0.5.1の局所統合証拠は同日のmacOS作業木で、選択ラベル源、保存済み出力再開、fallback snapshot、
+通知・cache寿命、選択源別保存基準の実装に対して全410試験、公開66試験、Ruff、依存固定、差分形式、
+sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功したことである。詳細は
+[保存済み出力再開・選択源境界ローカル検証記録](local-verification-2026-08-19-output-resume.md)に分離する。
+この局所成功はWindows実機受理を閉じない。
+
+版0.6.0の局所統合証拠は同日のmacOS作業木で、表示比較（暗）の画素、操作、設定、画像状態・保存不変、
+追補・包装の実装に対して全415試験、公開71試験、Ruff、依存固定、差分形式、sdist/wheel構築、画面外
+GUI起動、独立動的probe、三系統の独立査読が成功したことである。詳細は
+[表示比較（暗）ローカル検証記録](local-verification-2026-08-19-display-comparison.md)に分離する。
+この局所成功はWindows描画器、実機入力、性能、配布受理を閉じない。
+
 ## v1.1から継続する受入条件
 
 | 範囲 | 主な受入試験 | 実装面 | 検証面 | 状態 |
@@ -47,7 +70,7 @@ Ruff、sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功し
 | 拡大・格子・筆 | AT-008〜013 | `canvas.py`, `canvas_transform.py`, `operations.py`, `history.py` | 数式・画素マスク・Qt入力統合 | implemented / automated-local |
 | 二種境界生成 | AT-014〜020 | `operations.py`, `session.py` | `test_operations.py`, `test_session.py` | implemented / automated-local |
 | 小領域検査 | AT-021〜023 | `operations.py`, `workers.py`, `main_window.py` | 配列、表示、保存除外、改訂/token統合 | implemented / automated-local |
-| 遷移・既存出力 | AT-024〜025 | `session.py`, `main_window.py` | 保存・破棄・中止、編集元三分岐 | implemented / automated-local |
+| 遷移・既存出力 | AT-024〜025。FLEX-AT-011は履歴、現在はFLEX-AT-012〜015で限定上書き | `session.py`, `main_window.py` | 保存・破棄・中止、選択源分離、不正出力fallback snapshot、通知・cache寿命 | implemented / automated-local |
 | 保存・入力不変 | AT-026〜029 | `image_io.py`, `session.py`, `main_window.py` | 再読込、故障注入、SHA-256、置換前後競合 | implemented / automated-local |
 | 高DPI・画像外余白 | AT-030〜033 | `canvas.py`, `canvas_transform.py` | DPR数式・Qt統合・Windows実機 | implemented / automated-partial / AT-030 windows-pending |
 
@@ -59,7 +82,7 @@ Ruff、sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功し
 | AT-035 | 下端が既に無なら未変更。現行境界はFLEX-DIM-004 | `image_io.py`, `session.py` | 正規化差分0と基準配列比較は同経路。`H=100/101`はFLEX-AT-009へ分離 | implemented / automated-partial |
 | AT-036 | 全画素操作から下端を保護。現行境界はFLEX-DIM-004 | `operations.py`, `session.py`, `canvas.py` | 旧固定寸法の`test_v15_canvas.py::test_at_036_*`, `test_v15_core.py::test_at_036_*` | implemented / automated-partial |
 | AT-037 | 保存時に下端を再強制無化。現行境界はFLEX-DIM-004 | `image_io.py` | 旧固定寸法の`test_v15_core.py::test_at_037_save_uses_copy_and_forces_protected_rows_black` | implemented / automated-partial |
-| AT-038 | Action Registryの適用範囲 | `action_registry.py`, `settings_dialog.py`, `main_window.py` | 正規38件、設定表38行、主窓callback・QAction・メニュー各一件を自動検証 | implemented / automated-local |
+| AT-038 | Action Registryの基線適用範囲。表示追補が基線38 IDを保持して一操作を加える | `action_registry.py`, `settings_dialog.py`, `main_window.py` | 基線38件＋追補1件、設定表39行、主窓callback・QAction・メニュー各一件を自動検証 | implemented / automated-local |
 | AT-039 | 単一キー取得 | `ShortcutCaptureController` | `test_settings_dialog_v15.py::test_capture_ignores_preheld_modifier_repeat_and_keyup_then_takes_one_chord` | implemented / automated-local |
 | AT-040 | 修飾キー組合せ取得 | `ShortcutCaptureController` | 同上の `Ctrl+Shift+K` 候補化 | implemented / automated-local |
 | AT-041 | 開始前押下・反復除外 | `ShortcutCaptureController` | KEY-010に従い、既知の事前押下、自動反復、未観測のControl/Alt/Shift/Metaを主キー修飾状態から推定した場合の全KeyUp待機と新chord取得を検証 | implemented / automated-local |
@@ -85,7 +108,7 @@ Ruff、sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功し
 | AT-061 | 設定永続化範囲 | `AppSettings`, `SettingsRepository` | 全既知項目の往復と選択色・倍率・中心・現在画像の型上の排除 | implemented / automated-local |
 | AT-062 | 設定の適用・取消 | `SettingsDialog`, `MainWindow._apply_settings_snapshot` | dialog適用・取消と `test_at_062_setting_apply_does_not_touch_image_state` による配列・基準・履歴・未保存不変 | implemented / automated-local |
 | AT-063 | 疑似色設定・色差警告 | `settings_model.py`, `settings_dialog.py` | `#RRGGBB`、距離64境界、確認、色既定復元、永続化を自動検証。OS色選択部品経路は未追加 | implemented / automated-partial |
-| AT-064 | 原画像入力条件・色管理 | `image_io.py` | `test_v15_core.py::test_at_064_*`、EXIF・入力不変試験 | implemented / automated-local |
+| AT-064 | 原画像入力条件・色管理。現在はFLEX-ORIG-001/002とFLEX-AT-010で限定上書き | `image_io.py` | 公開原画像正規化・EXIF転置・復号失敗・入力不変試験と局所回帰試験 | implemented / automated-local |
 | AT-065 | 三値非表示時の編集禁止 | `canvas.py`, `main_window.py` | canvas overlay試験と `test_at_065_hidden_labels_block_edit_undo_redo_and_preserve_history` | implemented / automated-local |
 | AT-066 | 変更なし保存 | `session.py`, `main_window.py`, `image_io.py` | `test_at_066_079_unchanged_save_changes_list_to_output_present` がclean保存と出力あり遷移を検証 | implemented / automated-local |
 | AT-067 | 内容比較による未保存判定 | `session.py` の基準配列比較 | `test_v15_core.py::test_at_067_dirty_state_is_based_on_content_not_history_position` | implemented / automated-local |
@@ -106,14 +129,17 @@ Ruff、sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功し
 
 `FLEX-AT-*`は`TIE-ADD-FLEX-001`だけに属し、v1.5本文の`AT-*`およびマウス追補の
 `PTR-AT-*`とは別の要求身元である。`test_flexible_input_contract.py`は公開cloneで再現できる自動証拠
-だが、各行に記した未試験経路とWindows受理を閉じない。局所証拠は2026-08-19（Asia/Tokyo）の
-macOS作業木で`QT_QPA_PLATFORM=offscreen uv run pytest -q tests/test_flexible_input_contract.py`を
-実行した23件成功である。
+だが、各行に記した未試験経路とWindows受理を閉じない。版0.5.0までの局所証拠は2026-08-19
+（Asia/Tokyo）のmacOS作業木で
+`QT_QPA_PLATFORM=offscreen uv run pytest -q tests/test_flexible_input_contract.py`を実行した28件成功である。
+版0.5.1では同じ公開契約試験62件、包装試験と合わせた公開二試験66件が成功した。
 
 フォルダ変更、再走査、起動時再読込は、候補画像を現在とは別の`ImageSession`へpreflightし、成功後に
-だけ対応一覧とセッションを一括導入する。公開試験は、JPEG取消、無効PNGから後続JPEG取消、空群診断、
-移動先全候補失敗で旧session・pairs・folders・出力先が不変であること、および出力probeがpreflight、
-JPEG確認、未保存判断より後であることを検査する。blocking count診断も現在状態を置換せず表示する。
+だけ対応一覧とセッションを一括導入する。版0.5.0までの公開試験は、JPEG取消、無効PNGから後続JPEG取消、
+空群診断、移動先全候補失敗で旧session・pairs・folders・出力先が不変であることを検査した。版0.5.1の
+追加試験は、preflightと前後移動の無modal skip、全候補失敗時の理由集約、直接指定の一回通知、
+出力snapshotによるfallback許可、一時的失敗の非恒久cache化を別に検査する。旧28件からこの追加契約の
+成功を導出しない。
 
 | 追補AT | 契約 | 現在の実装 | 必要な自動証拠 | 状態 |
 | --- | --- | --- | --- | --- |
@@ -126,6 +152,13 @@ JPEG確認、未保存判断より後であることを検査する。blocking c
 | FLEX-AT-007 | 任意の正寸法を許し、原・三値不一致は双方の実寸付きで拒否し、resizeしない | `image_io.py`, `session.py`, `canvas_transform.py`, `main_window.py` | 公開試験`test_session_accepts_arbitrary_matching_dimensions`、`test_pair_dimension_failure_is_transactional_and_preserves_old_session`。複数寸法のGUI表示は未試験 | implemented / automated-partial |
 | FLEX-AT-008 | 既存出力を対と同寸に限定し、保存PNGも対と同寸にする | `image_io.py`, `session.py`, `main_window.py` | 公開JPEG session試験が新規保存寸法を検証。既存出力不一致と入力fallbackは未試験 | implemented / automated-partial |
 | FLEX-AT-009 | `H>100`末尾100行、`H<=100`保護なしを全経路で共有する | `constants.py`, `image_io.py`, `operations.py`, `canvas.py`, `main_window.py` | 公開試験`test_dynamic_protected_start_normalization_and_operations`が`H=80/100/101/1536`、正規化、塗りを検証。筆・境界・解析・保存の全経路は既存回帰との組合せ証拠 | implemented / automated-partial |
+| FLEX-AT-010 | 参照原画像は復号可能性を門とし、表示用RGB化、ICC退避、Orientation反映後寸法照合を行い、入力を変更しない | `image_io.py` | 公開試験`test_original_reference_normalizes_decodable_encodings_without_writing`、`test_original_reference_uses_exif_transposed_dimensions_without_writing`、`test_original_reference_still_rejects_undecodable_data_without_writing` | implemented / automated-local |
+| FLEX-AT-011 | version 1.1の既存出力自動優先と入力JPEG確認抑止。version 1.2の選択源分離は証明しない | `session.py`, `main_window.py`, `dialogs.py` | 公開試験`test_existing_output_is_automatically_preferred_without_source_confirmation`、`test_existing_output_bypasses_jpeg_confirmation_and_quantization`を履歴証拠として保持 | superseded / automated-local (version 1.1) |
+| FLEX-AT-012 | 対応付けの非零同数を維持し、正常出力を選んだ編集用画像対では未使用入力を復号・検査せず、入力選択時は厳格検査する | `session.py`, `main_window.py`, `image_io.py` | `test_output_resume_ignores_invalid_input_for_open_and_later_save`、`test_input_open_keeps_strict_validation_when_valid_output_exists`、`test_gui_auto_prefers_valid_output_when_unused_input_is_invalid` | implemented / automated-local |
+| FLEX-AT-013 | 原画像のEXIF表示方向反映後寸法と選択ラベル源を幅・高さ完全一致で照合し、ラベルPNGのOrientation 2〜8を拒否する | `image_io.py`, `session.py` | `test_output_resume_compares_output_with_display_oriented_original_only`、`test_output_resume_requires_exact_width_and_height`、`test_label_png_with_orientation_is_rejected_without_auto_rotation` | implemented / automated-local |
+| FLEX-AT-014 | preflight・前後移動は不正候補をmodalなしで飛ばし、全候補失敗時は理由を状態表示へ集約し、直接指定は一回通知する。出力由来・分類不能の失敗を恒久的な画像対cacheへ入れない | `main_window.py`, `errors.py` | `test_folder_preflight_skips_invalid_pair_without_modal_error`、`test_preflight_reports_every_failure_in_status_when_no_pair_is_usable`、`test_directional_navigation_skips_invalid_pair_without_modal_error`、`test_preflight_skips_output_and_unknown_failures_without_modal`、`test_directional_navigation_skips_output_and_unknown_failures_without_modal`、`test_direct_invalid_pair_reports_target_once`、`test_transient_open_failure_is_reported_but_not_cached_as_pair_error`、`test_cancelled_output_fallback_has_exactly_one_error_notification` | implemented / automated-local |
+| FLEX-AT-015 | fallback許可を出力snapshotへ結び付け、同じsnapshotでは再確認せず、変更後に再検査し、正常ならOUTPUTへ戻す | `main_window.py`, `image_io.py` | `test_accepted_output_fallback_is_not_reconfirmed_for_same_snapshot`、`test_accepted_output_fallback_is_invalidated_after_output_replacement` | implemented / automated-local |
+| FLEX-AT-016 | OUTPUT再開の保存は未使用入力の変更・破損・削除で止めず、INPUT開始では入力変更検査を維持する | `session.py`, `main_window.py` | `test_output_resume_ignores_invalid_input_for_open_and_later_save`がOUTPUT読込後の未使用入力置換・削除を、`test_input_source_external_change_screen_branches`がINPUT開始時の変更検査を固定 | implemented / automated-local |
 
 ## マウス入力割当追補の受入条件
 
@@ -137,7 +170,7 @@ JPEG確認、未保存判断より後であることを検査する。blocking c
 | --- | --- | --- | --- | --- |
 | PTR-AT-001 | 七基底token、Ctrl/Alt/Shift正規化、完全一致 | `action_registry.py`, `main_window.py` | `test_pointer_tokens_are_canonical_bindings`, `test_pointer_modifiers_are_ordered_and_unsupported_modifiers_are_rejected`, `test_pointer_wheel_assignment_is_exact_and_overrides_fixed_zoom` | implemented / automated-local |
 | PTR-AT-002 | Meta、鍵盤+mouse、複数button、専用double-click、drag、水平wheel、macro、global入力を拒否 | `action_registry.py`, `settings_dialog.py`, `main_window.py` | `test_qt_pointer_helpers_have_one_mapping_and_reject_unsupported_input`, `test_capture_consumes_double_click_sequence_without_second_candidate`, `test_capture_takes_vertical_wheel_but_excludes_zero_and_horizontal`。複数button・drag・macroの専用試験は未追加 | implemented / automated-partial |
-| PTR-AT-003 | 既存38操作と主・副割当を維持し、鍵盤・ポインタ間で同じ競合移動・取消を適用 | `action_registry.py`, `settings_dialog.py` | `test_at_038_049_all_operations_have_one_registry_and_menu_surface`, `test_pointer_bindings_share_conflict_space_with_keyboard_bindings` | implemented / automated-local |
+| PTR-AT-003 | マウス追補自体は操作を増やさず、現行操作群と主・副割当を維持して鍵盤・ポインタ間で同じ競合移動・取消を適用 | `action_registry.py`, `settings_dialog.py` | `test_at_038_049_all_operations_have_one_registry_and_menu_surface`, `test_pointer_bindings_share_conflict_space_with_keyboard_bindings` | implemented / automated-local |
 | PTR-AT-004 | button・垂直wheelを一候補として捕捉し、左・中・wheelの固定操作置換を適用前確認 | `settings_dialog.py` | `test_capture_takes_supported_mouse_button_and_consumes_its_release`, `test_capture_takes_vertical_wheel_but_excludes_zero_and_horizontal`, `test_fixed_pointer_override_confirmation_can_cancel_without_mutation`, `test_fixed_pointer_override_confirmation_can_accept` | implemented / automated-local |
 | PTR-AT-005 | 主画像Canvas限定で作動し、設定画面・一般UI入力を奪わない | `main_window.py`, `settings_dialog.py` | `test_pointer_assignments_are_canvas_only_and_disabled_exact_input_is_consumed`, `test_dialog_does_not_intercept_idle_mouse_or_wheel` | implemented / automated-local |
 | PTR-AT-006 | 未割当の固定操作を保ち、割当済み完全一致は無効時もfallbackせず、一時パン中の左buttonを優先 | `main_window.py`, `canvas.py`, `action_registry.py` | `test_pointer_wheel_assignment_is_exact_and_overrides_fixed_zoom`, `test_assigned_disabled_pointer_binding_is_consumed_without_invocation`, `test_mouse_left_assignment_preserves_existing_temporary_pan_escape_route`と既存wheel・pan回帰 | implemented / automated-local |
@@ -147,14 +180,34 @@ JPEG確認、未保存判断より後であることを検査する。blocking c
 | PTR-AT-010 | schema 2保存、schema 0/1鍵盤割当の無警告移行、既存path維持、欄単位の破損fallback、正常な明示割当を低優先fallbackより優先 | `settings_model.py`, `action_registry.py` | `test_schema_one_keyboard_settings_migrate_to_schema_two_without_warning`, `test_schema_two_pointer_bindings_roundtrip`, `test_missing_shortcut_uses_default_unknown_id_is_ignored_and_corruption_is_local`, `test_invalid_fallback_does_not_displace_a_valid_explicit_binding`, `test_missing_default_does_not_displace_a_valid_explicit_binding`。schema 0の任意鍵盤割当と組織名・応用名を跨ぐ専用移行試験は未追加 | implemented / automated-partial |
 | PTR-AT-011 | Windows実機でBack/Forward、precision touchpad/inertia、modal中release、旧schema保持を確認 | 配布候補 | macOSの合成Qt eventだけでは閉じない | windows-pending |
 
+## 表示比較（暗）追補の受入条件
+
+`DISP-CMP-*`は`TIE-ADD-DISP-CMP-001`だけに属し、v1.5の`AT-*`、柔軟入力追補の
+`FLEX-AT-*`、マウス追補の`PTR-AT-*`とは別の要求身元である。公開試験
+`tests/test_display_comparison_contract.py`は画素・状態・永続化契約を再現するが、Windows実描画と
+人間受理を閉じない。
+
+| 追補ID | 契約 | 現在の実装 | 現在の自動証拠 | 状態 |
+| --- | --- | --- | --- | --- |
+| DISP-CMP-001 | 主画面表示欄の常設「比較（暗）」チェックと状態表示 | `control_panel.py`, `main_window.py` | `test_control_defaults_and_semantic_signals`、主画面操作同期試験 | implemented / automated-local / windows-pending |
+| DISP-CMP-002 | `view.toggle-darken-comparison`を既定割当なしのSINGLE操作として追加し、現行39操作を一台帳・一menu surfaceで扱う | `action_registry.py`, `main_window.py`, `settings_dialog.py` | `test_registry_is_v15_plus_the_display_comparison_operation`、`test_at_038_049_all_operations_have_one_registry_and_menu_surface`、公開`test_disp_cmp_002_007_action_sync_and_restart_do_not_touch_document_state` | implemented / automated-local / windows-pending |
+| DISP-CMP-003 | 既定無効。無効時の保存色Lightenと疑似色SourceOverを維持し、ON→OFFで復元 | `canvas.py` | 公開`test_disp_cmp_003_005_default_off_and_darken_cover_saved_and_pseudo_colors`と既存`test_view_005_composes_at_native_resolution_then_scales_once` | implemented / automated-local / windows-pending |
+| DISP-CMP-004 | 有効時は原解像度で成分最小値と原画像不透明度を合成し、完成像を一度だけ拡縮 | `canvas.py` | 公開`test_disp_cmp_003_005_default_off_and_darken_cover_saved_and_pseudo_colors`、`test_disp_cmp_004_006_opacity_endpoints_and_single_layer_views_are_stable`。中間値は8-bit量子化差2以内、端点完全一致 | implemented / automated-local / windows-pending |
+| DISP-CMP-005 | 保存色・現在疑似色の双方へ比較（暗）を適用し、ラベルを変えない | `canvas.py` | 公開`test_disp_cmp_003_005_default_off_and_darken_cover_saved_and_pseudo_colors` | implemented / automated-local / windows-pending |
+| DISP-CMP-006 | 三値のみ、原画像のみ、双方非表示、不透明度0で非表示層の内容を混入させない | `canvas.py` | 公開`test_disp_cmp_004_006_opacity_endpoints_and_single_layer_views_are_stable` | implemented / automated-local / windows-pending |
+| DISP-CMP-007 | 切替・設定適用・復元を表示専用とし、ラベル、基準、履歴、改訂、未保存判定、保存PNGを変えない | `canvas.py`, `main_window.py` | 公開`test_disp_cmp_002_007_action_sync_and_restart_do_not_touch_document_state`、`test_disp_cmp_007_saved_png_is_identical_before_and_after_display_toggle`、`test_at_062_setting_apply_does_not_touch_image_state` | implemented / automated-local / windows-pending |
+| DISP-CMP-008 | 既定false、QSettings `view/darkenComparison`、schema 2据置、Apply/Cancel境界、欠損・破損fallback | `settings_model.py`, `settings_dialog.py`, `main_window.py` | 公開`test_disp_cmp_008_settings_roundtrip_and_corrupt_value_fallback`、設定model往復、dialog適用・取消回帰 | implemented / automated-local / windows-pending |
+
 ## AT表外の横断要求証拠
 
 - KEY-004: `test_action_registry.py` が単文字・数字・記号と標準文字編集キーを編集欄では
   抑止し、Ctrl+S、Ctrl+Shift+B、Alt+1、F5等の非編集命令を過剰抑止しないことを検証。
   `test_v15_main_window.py::test_key_004_numeric_input_keeps_standard_up_key_for_the_widget` は
   数値欄のUpを操作割当へ漏らさず、部品自身へ渡す主窓経路を検証した。
-- SAVE-009: 原画像・入力三値外部変更の取消、読込済みスナップショット保存、再読込破棄を
-  `test_v15_main_window.py::test_input_source_external_change_screen_branches` で自動検証した。
+- SAVE-009: `INPUT`を選んだセッションの原画像・入力三値外部変更について、取消、読込済み
+  snapshot保存、再読込破棄を`test_v15_main_window.py::test_input_source_external_change_screen_branches`で
+  自動検証した。`OUTPUT`再開では未使用入力を保存基準に含めず、`FLEX-SAVE-001`とFLEX-AT-016で
+  別に追跡する。
 
 ## 現在環境では閉じない証拠
 
@@ -168,6 +221,10 @@ JPEG確認、未保存判断より後であることを検査する。blocking c
   HOLD解放、schema 0/1から2への実設定移行。
 - FLEX-AT-003〜009のWindows実ファイル名自然順、全対応表の可読性、JPEG警告・ICC変換、
   入力hash不変、対象業務寸法、`H=100/101`境界。
+- FLEX-AT-012〜016のWindows実ファイルによる選択源分離、ラベルOrientation、無modal探索、直接通知、
+  fallback snapshot、未使用入力変更後のOUTPUT保存。
+- DISP-CMP-001〜008のWindows描画器での比較（暗）画素、100%〜200%表示、疑似色、再起動復元、
+  切替前後の保存PNG不変。
 - 同じ側車ロック規約に従わない別アプリが、最後の内容照合と `os.replace` 呼出しの間へ
   割り込む競合。協調writerは保存ロックで排他するが、`os.replace` 自体は内容条件付き置換
   ではない。

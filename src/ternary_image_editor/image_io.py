@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageCms, UnidentifiedImageError
+from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
 
 from .constants import (
     JPEG_QUANTIZATION_RULE,
@@ -44,7 +44,6 @@ _PNG_COLOR_GRAYSCALE = 0
 _PNG_COLOR_RGB = 2
 _PNG_COLOR_GRAYSCALE_ALPHA = 4
 _PNG_COLOR_RGBA = 6
-_ALLOWED_ORIGINAL_FORMATS = frozenset({"PNG", "JPEG", "BMP", "TIFF"})
 _INVALID_EXAMPLE_LIMIT = 8
 
 
@@ -94,46 +93,33 @@ def load_original_image(
     *,
     expected_size: tuple[int, int] | None = None,
 ) -> LoadedOriginal:
-    """8-bit L/RGB原画像を厳格に読取り、sRGB表示配列を返す。"""
+    """参照専用の原画像を復号し、表示用sRGB配列を返す。"""
 
     path = Path(path)
     data, _fingerprint = _read_snapshot(path)
     try:
         with Image.open(io.BytesIO(data)) as image:
-            if image.format not in _ALLOWED_ORIGINAL_FORMATS:
-                raise ImageValidationError(path, "対応していない原画像形式")
-            _validate_original_encoding(data, image, path)
-            if image.mode not in {"L", "RGB"}:
-                raise ImageValidationError(
-                    path,
-                    "原画像は8-bit RGBまたは8-bitグレースケールでなければならない",
-                    (f"mode={image.mode}",),
-                )
-            if "transparency" in image.info:
-                raise ImageValidationError(path, "透明情報を含む原画像は使用できない")
-            orientation = image.getexif().get(274)
-            if orientation not in {None, 1}:
-                raise ImageValidationError(
-                    path,
-                    "Orientation 2～8の原画像は使用できない",
-                    (f"orientation={orientation}",),
-                )
             image.load()
-            if expected_size is not None and image.size != expected_size:
-                raise ImageValidationError(
+            with ImageOps.exif_transpose(image) as displayed:
+                if expected_size is not None and displayed.size != expected_size:
+                    raise ImageValidationError(
+                        path,
+                        "寸法不一致",
+                        (
+                            f"期待={expected_size[0]}x{expected_size[1]}",
+                            f"実際={displayed.width}x{displayed.height}",
+                        ),
+                    )
+                converted = _convert_original_to_srgb(
+                    displayed,
                     path,
-                    "寸法不一致",
-                    (
-                        f"期待={expected_size[0]}x{expected_size[1]}",
-                        f"実際={image.width}x{image.height}",
-                    ),
+                    strict_profile=False,
                 )
-            converted = _convert_original_to_srgb(image, path)
-            try:
-                rgb = np.asarray(converted, dtype=np.uint8).copy()
-            finally:
-                if converted is not image:
-                    converted.close()
+                try:
+                    rgb = np.asarray(converted, dtype=np.uint8).copy()
+                finally:
+                    if converted is not displayed:
+                        converted.close()
     except ImageValidationError:
         raise
     except (
@@ -158,13 +144,27 @@ def load_ternary_image(
     if path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS:
         return _load_label_jpeg(path, expected_size=expected_size)
     if path.suffix.casefold() != ".png":
-        raise ImageValidationError(path, "対応していない三値画像形式")
+        raise ImageValidationError(path, "三値画像の拡張子が対応外")
     return _load_label_png(
         path,
         expected_size=expected_size,
         require_rgb=False,
         normalize_protected=True,
     )
+
+
+def inspect_ternary_jpeg(
+    path: Path,
+    *,
+    expected_size: tuple[int, int] | None = None,
+) -> tuple[tuple[int, int], FileFingerprint]:
+    """三値化せずにJPEG入力を検査し、寸法と内容指紋を返す。"""
+
+    rgb, fingerprint = _decode_label_jpeg_to_srgb(
+        Path(path),
+        expected_size=expected_size,
+    )
+    return (int(rgb.shape[1]), int(rgb.shape[0])), fingerprint
 
 
 def load_output_image(
@@ -330,8 +330,15 @@ def _load_label_png(
             if image.format != "PNG" or image.mode != expected_mode:
                 raise ImageValidationError(
                     path,
-                    "PNG復号形式がIHDRと一致しない",
-                    (f"mode={image.mode}",),
+                    "PNGの色形式を認識できない",
+                    (f"復号mode={image.mode}; IHDRと不一致",),
+                )
+            orientation = image.getexif().get(274)
+            if orientation not in {None, 1}:
+                raise ImageValidationError(
+                    path,
+                    "Orientation 2～8の三値PNGは使用できない",
+                    (f"orientation={orientation}",),
                 )
             pixels = np.asarray(image, dtype=np.uint8).copy()
     except ImageValidationError:
@@ -375,6 +382,36 @@ def _load_label_jpeg(
 
     呼出側が不可逆変換の警告と同意を担う。この関数自身は入力へ一切書き込まない。
     """
+
+    rgb, fingerprint = _decode_label_jpeg_to_srgb(
+        path,
+        expected_size=expected_size,
+    )
+
+    baseline_labels = quantize_srgb_to_labels(rgb)
+    labels, changed_pixels = normalized_protected_labels_copy(baseline_labels)
+    return LoadedLabels(
+        labels=labels,
+        path=path,
+        fingerprint=fingerprint,
+        baseline_labels=baseline_labels,
+        normalization=ProtectedNormalizationReport(changed_pixels=changed_pixels),
+        import_report=TernaryImportReport(
+            source_format="JPEG",
+            quantized=True,
+            quantization_rule=JPEG_QUANTIZATION_RULE,
+            label_counts=_label_counts(baseline_labels),
+        ),
+        requires_save=True,
+    )
+
+
+def _decode_label_jpeg_to_srgb(
+    path: Path,
+    *,
+    expected_size: tuple[int, int] | None,
+) -> tuple[np.ndarray, FileFingerprint]:
+    """三値JPEGを厳格に復号し、量子化前のsRGB画素を返す。"""
 
     data, fingerprint = _read_snapshot(path)
     try:
@@ -433,23 +470,7 @@ def _load_label_jpeg(
         ValueError,
     ) as exc:
         raise ImageValidationError(path, "JPEGの復号に失敗", (str(exc),)) from exc
-
-    baseline_labels = quantize_srgb_to_labels(rgb)
-    labels, changed_pixels = normalized_protected_labels_copy(baseline_labels)
-    return LoadedLabels(
-        labels=labels,
-        path=path,
-        fingerprint=fingerprint,
-        baseline_labels=baseline_labels,
-        normalization=ProtectedNormalizationReport(changed_pixels=changed_pixels),
-        import_report=TernaryImportReport(
-            source_format="JPEG",
-            quantized=True,
-            quantization_rule=JPEG_QUANTIZATION_RULE,
-            label_counts=_label_counts(baseline_labels),
-        ),
-        requires_save=True,
-    )
+    return rgb, fingerprint
 
 
 def quantize_srgb_to_labels(pixels: np.ndarray) -> np.ndarray:
@@ -597,14 +618,21 @@ def _validate_labels_for_save(
     return array
 
 
-def _convert_original_to_srgb(image: Image.Image, path: Path) -> Image.Image:
-    """埋込みICCがあれば解釈してsRGB化し、壊れたprofileは拒む。"""
+def _convert_original_to_srgb(
+    image: Image.Image,
+    path: Path,
+    *,
+    strict_profile: bool = True,
+) -> Image.Image:
+    """埋込みICCがあればsRGB化し、必要なら通常RGB変換へ退避する。"""
 
     icc_profile = image.info.get("icc_profile")
     if icc_profile is None:
         return image.convert("RGB")
     if not isinstance(icc_profile, bytes) or not icc_profile:
-        raise ImageValidationError(path, "ICC profileを解釈できない")
+        if strict_profile:
+            raise ImageValidationError(path, "ICC色特性を解釈できない")
+        return image.convert("RGB")
     try:
         source_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
         target_profile = ImageCms.createProfile("sRGB")
@@ -615,65 +643,13 @@ def _convert_original_to_srgb(image: Image.Image, path: Path) -> Image.Image:
             outputMode="RGB",
         )
     except (ImageCms.PyCMSError, OSError, TypeError, ValueError) as exc:
-        raise ImageValidationError(
-            path,
-            "ICC profileからsRGBへ変換できない",
-            (str(exc),),
-        ) from exc
-
-
-def _validate_original_encoding(data: bytes, image: Image.Image, path: Path) -> None:
-    """Pillowの復号modeだけでは失われ得るbit深度・追加sampleも検査する。"""
-
-    if image.format == "PNG":
-        structure = _inspect_png_bytes(data, path)
-        if structure.bit_depth != 8:
+        if strict_profile:
             raise ImageValidationError(
                 path,
-                "原画像は8-bitでなければならない",
-                (f"bit_depth={structure.bit_depth}",),
-            )
-        if structure.color_type in {_PNG_COLOR_GRAYSCALE_ALPHA, _PNG_COLOR_RGBA}:
-            raise ImageValidationError(path, "アルファチャンネルを含む原画像は使用できない")
-        if structure.color_type == 3:
-            raise ImageValidationError(path, "索引色の原画像は使用できない")
-        if structure.color_type not in {_PNG_COLOR_GRAYSCALE, _PNG_COLOR_RGB}:
-            raise ImageValidationError(path, "許可されていない原画像色形式")
-        if structure.has_trns:
-            raise ImageValidationError(path, "透明情報を含む原画像は使用できない")
-        return
-
-    if image.format != "TIFF":
-        return
-    tags = getattr(image, "tag_v2", None)
-    if tags is None:
-        return
-    bits_per_sample = _tag_values(tags.get(258))
-    if bits_per_sample and any(value != 8 for value in bits_per_sample):
-        raise ImageValidationError(
-            path,
-            "原画像は8-bitでなければならない",
-            (f"BitsPerSample={bits_per_sample}",),
-        )
-    sample_formats = _tag_values(tags.get(339))
-    if sample_formats and any(value != 1 for value in sample_formats):
-        raise ImageValidationError(
-            path,
-            "浮動小数点または符号付きの原画像は使用できない",
-            (f"SampleFormat={sample_formats}",),
-        )
-    if _tag_values(tags.get(338)):
-        raise ImageValidationError(path, "追加sampleを含む原画像は使用できない")
-
-
-def _tag_values(value: object) -> tuple[int, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, int):
-        return (value,)
-    if isinstance(value, tuple):
-        return tuple(int(item) for item in value)
-    return ()
+                "ICC色特性からsRGBへ変換できない",
+                (str(exc),),
+            ) from exc
+        return image.convert("RGB")
 
 
 def _protected_view(labels: np.ndarray) -> np.ndarray:
@@ -793,7 +769,7 @@ def _read_snapshot(path: Path) -> tuple[bytes, FileFingerprint]:
             data = stream.read()
             after = os.fstat(stream.fileno())
     except OSError as exc:
-        raise ImageValidationError(path, "ファイルを読めない", (str(exc),)) from exc
+        raise ImageValidationError(path, "ファイルを読み込めない", (str(exc),)) from exc
 
     if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns) or len(
         data
@@ -809,7 +785,7 @@ def _read_snapshot(path: Path) -> tuple[bytes, FileFingerprint]:
 
 def _inspect_png_bytes(data: bytes, path: Path) -> PngStructure:
     if not data.startswith(_PNG_SIGNATURE):
-        raise ImageValidationError(path, "PNG signatureが一致しない")
+        raise ImageValidationError(path, "PNG形式として認識できない", ("signature不一致",))
 
     offset = len(_PNG_SIGNATURE)
     first_chunk = True
@@ -819,18 +795,30 @@ def _inspect_png_bytes(data: bytes, path: Path) -> PngStructure:
 
     while offset < len(data):
         if offset + 12 > len(data):
-            raise ImageValidationError(path, "PNG chunkが途中で切れている")
+            raise ImageValidationError(
+                path,
+                "PNG構造が壊れている",
+                ("chunkが途中で切れている",),
+            )
         length = struct.unpack_from(">I", data, offset)[0]
         chunk_type = data[offset + 4 : offset + 8]
         chunk_data_start = offset + 8
         chunk_end = chunk_data_start + length
         next_offset = chunk_end + 4
         if next_offset > len(data):
-            raise ImageValidationError(path, "PNG chunk長がファイル範囲を超えている")
+            raise ImageValidationError(
+                path,
+                "PNG構造が壊れている",
+                ("chunk長がファイル範囲を超えている",),
+            )
 
         if first_chunk:
             if chunk_type != b"IHDR" or length != _PNG_IHDR_LENGTH:
-                raise ImageValidationError(path, "先頭chunkが正しいIHDRではない")
+                raise ImageValidationError(
+                    path,
+                    "PNG構造が壊れている",
+                    ("先頭chunkが正しいIHDRではない",),
+                )
             width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack(
                 ">IIBBBBB", data[chunk_data_start:chunk_end]
             )
@@ -845,7 +833,7 @@ def _inspect_png_bytes(data: bytes, path: Path) -> PngStructure:
                     1,
                 }
             ):
-                raise ImageValidationError(path, "IHDR値が不正")
+                raise ImageValidationError(path, "PNG構造が壊れている", ("IHDR値が不正",))
             ihdr = width, height, bit_depth, color_type
             first_chunk = False
         elif chunk_type == b"tRNS":
@@ -857,7 +845,11 @@ def _inspect_png_bytes(data: bytes, path: Path) -> PngStructure:
             break
 
     if ihdr is None or not saw_iend:
-        raise ImageValidationError(path, "IHDRまたはIENDがない")
+        raise ImageValidationError(
+            path,
+            "PNG構造が壊れている",
+            ("IHDRまたはIENDがない",),
+        )
     return PngStructure(*ihdr, has_trns=has_trns)
 
 

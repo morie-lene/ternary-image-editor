@@ -16,7 +16,7 @@ class FolderAccessError(TernaryEditorError):
     reason: str
 
     def __str__(self) -> str:
-        return f"フォルダを利用できない: {self.path} ({self.reason})"
+        return f"フォルダを利用できません\n場所: {self.path}\n理由: {self.reason}"
 
 
 @dataclass(slots=True)
@@ -26,8 +26,14 @@ class ImageValidationError(TernaryEditorError):
     details: tuple[str, ...] = ()
 
     def __str__(self) -> str:
-        suffix = f": {'; '.join(self.details)}" if self.details else ""
-        return f"画像を利用できない: {self.path} ({self.reason}){suffix}"
+        lines = [
+            "画像を読み込めません",
+            f"ファイル: {self.path}",
+            f"理由: {self.reason}",
+        ]
+        if self.details:
+            lines.append(f"詳細: {'; '.join(self.details)}")
+        return "\n".join(lines)
 
 
 @dataclass(slots=True)
@@ -36,13 +42,14 @@ class PairDimensionError(TernaryEditorError):
     original_size: tuple[int, int]
     ternary_path: Path
     ternary_size: tuple[int, int]
+    ternary_role: str = "入力三値画像"
 
     def __str__(self) -> str:
         return (
-            "画像対の寸法が一致しない: "
-            f"原画像={self.original_path} "
-            f"({self.original_size[0]}x{self.original_size[1]}), "
-            f"三値画像={self.ternary_path} "
+            "画像対の寸法が一致しません\n"
+            f"原画像（表示方向反映後）: {self.original_path} "
+            f"({self.original_size[0]}x{self.original_size[1]})\n"
+            f"{self.ternary_role}: {self.ternary_path} "
             f"({self.ternary_size[0]}x{self.ternary_size[1]})"
         )
 
@@ -52,7 +59,7 @@ class JpegImportConfirmationRequired(TernaryEditorError):
     path: Path
 
     def __str__(self) -> str:
-        return f"JPEG三値画像の明示確認が必要: {self.path}"
+        return f"JPEG三値画像の変換確認が必要です\nファイル: {self.path}"
 
 
 @dataclass(slots=True)
@@ -61,7 +68,7 @@ class AtomicSaveError(TernaryEditorError):
     reason: str
 
     def __str__(self) -> str:
-        return f"保存に失敗した: {self.path} ({self.reason})"
+        return f"画像を保存できません\nファイル: {self.path}\n理由: {self.reason}"
 
 
 @dataclass(slots=True)
@@ -71,7 +78,7 @@ class ExternalModificationError(TernaryEditorError):
     actual_sha256: str | None
 
     def __str__(self) -> str:
-        return f"出力ファイルが外部で変更されている: {self.path}"
+        return f"出力画像は読み込み後に外部変更されています\nファイル: {self.path}"
 
 
 @dataclass(slots=True)
@@ -88,7 +95,7 @@ class ExternalSourceModificationError(TernaryEditorError):
 
     def __str__(self) -> str:
         source = "原画像" if self.source_kind == "original" else "入力三値画像"
-        return f"{source}が外部で変更されている: {self.path}"
+        return f"{source}は読み込み後に外部変更されています\nファイル: {self.path}"
 
 
 @dataclass(slots=True)
@@ -98,7 +105,10 @@ class OutputSaveLockError(TernaryEditorError):
     reason: str
 
     def __str__(self) -> str:
-        return f"出力の保存ロックを取得できない: {self.path} ({self.reason})"
+        return (
+            "出力画像の保存ロックを取得できません\n"
+            f"ファイル: {self.path}\n理由: {self.reason}"
+        )
 
 
 class BusyError(TernaryEditorError):

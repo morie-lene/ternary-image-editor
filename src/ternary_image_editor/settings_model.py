@@ -126,6 +126,7 @@ class AppSettings:
     original_visible: bool = True
     ternary_visible: bool = True
     pseudo_enabled: bool = False
+    darken_comparison_enabled: bool = False
     pseudo_colors: tuple[str, str, str] = DEFAULT_PSEUDO_COLORS
     original_opacity: int = 50
     grid_auto: bool = True
@@ -151,6 +152,7 @@ class AppSettings:
             "original_visible",
             "ternary_visible",
             "pseudo_enabled",
+            "darken_comparison_enabled",
             "grid_auto",
             "small_components",
         ):
@@ -202,6 +204,7 @@ class SettingsWorkCopy:
     original_visible: bool
     ternary_visible: bool
     pseudo_enabled: bool
+    darken_comparison_enabled: bool
     pseudo_colors: list[str]
     original_opacity: int
     grid_auto: bool
@@ -224,6 +227,7 @@ class SettingsWorkCopy:
             original_visible=settings.original_visible,
             ternary_visible=settings.ternary_visible,
             pseudo_enabled=settings.pseudo_enabled,
+            darken_comparison_enabled=settings.darken_comparison_enabled,
             pseudo_colors=list(settings.pseudo_colors),
             original_opacity=settings.original_opacity,
             grid_auto=settings.grid_auto,
@@ -249,6 +253,7 @@ class SettingsWorkCopy:
             original_visible=self.original_visible,
             ternary_visible=self.ternary_visible,
             pseudo_enabled=self.pseudo_enabled,
+            darken_comparison_enabled=self.darken_comparison_enabled,
             pseudo_colors=tuple(self.pseudo_colors),  # type: ignore[arg-type]
             original_opacity=self.original_opacity,
             grid_auto=self.grid_auto,
@@ -302,6 +307,9 @@ class SettingsRepository:
             original_visible=self._read_bool("view/originalVisible", defaults.original_visible),
             ternary_visible=self._read_bool("view/ternaryVisible", defaults.ternary_visible),
             pseudo_enabled=self._read_bool("view/pseudoEnabled", defaults.pseudo_enabled),
+            darken_comparison_enabled=self._read_bool(
+                "view/darkenComparison", defaults.darken_comparison_enabled
+            ),
             pseudo_colors=colors,
             original_opacity=self._read_int(
                 "view/originalOpacity", defaults.original_opacity, minimum=0, maximum=100
@@ -345,6 +353,7 @@ class SettingsRepository:
             "view/originalVisible": snapshot.original_visible,
             "view/ternaryVisible": snapshot.ternary_visible,
             "view/pseudoEnabled": snapshot.pseudo_enabled,
+            "view/darkenComparison": snapshot.darken_comparison_enabled,
             "view/pseudoColorNone": snapshot.pseudo_colors[0],
             "view/pseudoColorPresent": snapshot.pseudo_colors[1],
             "view/pseudoColorBoundary": snapshot.pseudo_colors[2],
