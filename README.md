@@ -77,11 +77,26 @@ Windows上で次を実行すると、試験と静的検査の後にPyInstaller�
 構築スクリプトは旧候補を限定削除し、生成exeの配置、非零長、MZ先頭、一意性、
 SHA-256を検査してから成功表示する。
 
+実行位置は、`pyproject.toml`、`uv.lock`、`scripts/`、`src/`、`docs/`が並ぶ
+リポジトリ直下とする。GitHubから取得したZIPを既定名で展開した場合は、
+`ternary-image-editor-main`フォルダがリポジトリ直下に当たる。PowerShellで同フォルダへ移動し、
+`uv --version`が版番号を返す状態で構築する。次はDownloadsへ展開した場合の例である。
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+Set-Location "$env:USERPROFILE\Downloads\ternary-image-editor-main"
+uv --version
+powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 ```
 
-成果物は `dist/TernaryImageEditor/TernaryImageEditor.exe`。配布判断前に
+構築スクリプトは自身の配置からリポジトリ直下を解決するため、別の作業フォルダから
+絶対パスで呼び出してもよい。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\work\ternary-image-editor-main\scripts\build_windows.ps1"
+```
+
+成果物は、実行時の作業フォルダにかかわらず、リポジトリ直下の
+`dist/TernaryImageEditor/TernaryImageEditor.exe`。配布判断前に
 [Windows最終受入チェックリスト](docs/windows-acceptance-checklist.md)を埋める。構築時には
 同じ配布フォルダの `docs/` へv1.5要求正本を複製し、固定SHA-256も検査する。
 
