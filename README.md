@@ -38,23 +38,16 @@ macOS/Linuxでも開発確認には同じ入口を使えるが、配布対象と
 小領域強調、疑似色、格子、原画像、筆ポインタは表示専用であり、出力へ混入しない。
 三値画像を非表示にしている間は画素編集とUndo・Redoも停止する。
 
-公開リポジトリは合意済みの公開範囲に従い、`tests/`を含めない。従って公開取得物には
-`pytest`の収集対象がない。別管理の`tests/`が存在する開発作業場では、次で試験と静的検査を
-行う。
+公開リポジトリには、Python配布物とWindows構築スクリプトの不変条件を再現する
+`tests/test_packaging.py`を含める。取得後は次を実行する。
 
 ```powershell
-uv run pytest tests
+uv run pytest
 uv run ruff check .
 ```
 
-`pyproject.toml`から、公開取得物に存在しない`tests/`を固定参照しない。公開取得物で
-`uv run pytest`を実行すると、pytestの規則どおり「試験0件」の終了符号5になるが、
-`testpaths`の参照切れ警告は出ない。この結果は試験成功の証拠にはならない。公開取得物で
-実行できる一般検査は次のとおり。
-
-```powershell
-uv run ruff check .
-```
+公開試験はsdist・wheelの生成内容、必須資産、入口、Windows構築スクリプトの失敗伝播と
+成果物検査を対象とする。画像編集機能全体の受入やWindows上のexe起動を証明するものではない。
 
 ## データ境界
 
@@ -84,9 +77,8 @@ macOS 上の開発試験と Windows 上の最終受理を分ける。Windows 10 
 
 ## Windows配布候補
 
-Windows上で次を実行すると、静的検査の後にPyInstallerのone-folder配布候補を作る。
-`tests/`が存在する開発作業場では、その前に`pytest`も実行し、不合格なら構築を止める。
-公開取得物のように`tests/`が存在しない場合は、試験未実施を警告して`pytest`だけを省略する。
+Windows上で次を実行すると、公開配布試験と静的検査の後にPyInstallerのone-folder配布候補を
+作る。`tests/`が無い場合、試験が不合格の場合、または静的検査が不合格の場合は構築を止める。
 構築スクリプトは旧候補を限定削除し、生成exeの配置、非零長、MZ先頭、一意性、SHA-256を
 検査してから成功表示する。
 
