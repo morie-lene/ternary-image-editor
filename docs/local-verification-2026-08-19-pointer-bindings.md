@@ -10,14 +10,15 @@
   `91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`
 - 環境: macOS 26.5.2、Python 3.11.15、PySide6 / Qt 6.11.1、uv 0.10.10
 
-この記録はmacOS開発作業木の局所証拠であり、Windows配布受理を表さない。試験集合は公開
-取得物へ含めないため、公開cloneだけではpytest結果を再現できない。
+この記録はmacOS開発作業木の局所証拠であり、Windows配布受理を表さない。公開cloneには
+包装検査用の `tests/test_packaging.py` だけを含めるため、公開包装試験4件は再現できるが、
+非公開機能試験を含む全結果は再現できない。
 
 ## 実行結果
 
 ```text
 uv run pytest
-343 passed in 5.34s
+344 passed in 6.01s
 
 uv run ruff check .
 All checks passed!
@@ -43,9 +44,9 @@ dist/ternary_image_editor-0.3.0.tar.gz
 dist/ternary_image_editor-0.3.0-py3-none-any.whl
 ```
 
-sdistには応用本体、README、v1.1・v1.5仕様、マウス入力割当追補と解説文書が入り、
-`tests/`は入っていない。wheelには応用packageとアイコン資産が入り、版metadataは0.3.0で
-ある。これらの局所生成物自体はGitHubへ登録しない。
+sdistには応用本体、README、v1.1・v1.5仕様、マウス入力割当追補、解説文書と公開包装試験
+`tests/test_packaging.py`だけが入る。wheelには応用packageとアイコン資産が入り、試験sourceは
+入らず、版metadataは0.3.0である。これらの局所生成物自体はGitHubへ登録しない。
 
 ## 重点回帰
 
@@ -63,8 +64,8 @@ sdistには応用本体、README、v1.1・v1.5仕様、マウス入力割当追�
   検証した。
 - schema 0 / 1の鍵盤値、schema 2のpointer値、空文字解除、局所破損を検証した。正常な明示
   割当と欠落既定値・破損fallbackが競合する場合は、正常値を優先する回帰も固定した。
-- Windows構築scriptが公開取得物でpytestを警告付き省略し、v1.5仕様とマウス追補を固定hash
-  で配布候補へ複製する文字列・順序契約を自動検証した。
+- Windows構築scriptが公開包装試験の存在を必須とし、`tests/`全体の試験失敗を伝播してから、
+  v1.5仕様とマウス追補を固定hashで配布候補へ複製する文字列・順序契約を自動検証した。
 
 ## 公開契約・依存・安全境界
 
@@ -79,9 +80,10 @@ sdistには応用本体、README、v1.1・v1.5仕様、マウス入力割当追�
   する内部永続形式である。代表実行は上記GUI煙試験で確認した。
 - 認証、認可、秘密情報、通信、記録出力、画像file書込経路、全域mouse hookは加えていない。
   pointer入力の対象は応用内Canvasに限定し、一般UIと他応用の入力へ介入しない。
-- 試験sourceは開発作業木にのみ存在し、公開Git取得物・sdist・wheelから意図的に除外している。
-  したがって公開clone単独で343件を再現できない一方、上記結果と要求対応は本記録および
-  `requirements-traceability.md` に残した。配布archiveに `tests/` がないことも検査した。
+- 機能試験sourceは開発作業木だけに置き、公開Git取得物・sdist・wheelから除外している。
+  公開包装試験sourceだけは公開Git取得物とsdistへ入れ、wheelからは除外する。したがって
+  公開clone単独で全344件は再現できないが、包装試験4件は再現できる。両者の証拠境界は
+  本記録および `requirements-traceability.md` に残した。
 - 実装は、永続化時の正規化、実行時のbutton latch、設定画面の入力捕捉を分離した。これは
   schema互換、入れ子event loop、HOLD解放の残留防止という別々の責務による。新しい依存、
   新しい操作ID、全域入力監視は導入していない。

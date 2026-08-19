@@ -42,7 +42,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP4 | completed-local | 座標・DPR閾値・画像外余白の単体/Qt試験。Windows AT-030は未受理 |
 | WP5 | completed-local | 主画面の筆、履歴、保存、遷移、解析陳腐化のQt統合試験 |
 | WP6 | completed-local | ローカル全検査とsdist/wheel配布補助を完了。Windows構築は成果物の配置・非零長・MZ・一意性・hashを事後検査。Windows実機判断門はpending |
-| WP7 | completed-local-with-residual | 既存38操作へ七ポインタtokenを追加し、Canvas限定、固定操作との優先、HOLD解放、schema 2移行を実装。全343試験と `uv run ruff check .` が成功。PTR-AT-002/008/010は自動部分証拠、PTR-AT-011はwindows-pending |
+| WP7 | completed-local-with-residual | 既存38操作へ七ポインタtokenを追加し、Canvas限定、固定操作との優先、HOLD解放、schema 2移行を実装。全344試験と `uv run ruff check .` が成功。PTR-AT-002/008/010は自動部分証拠、PTR-AT-011はwindows-pending |
 
 ## 変更統制
 
@@ -55,6 +55,6 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 
 1. 実装開始: 要求・計画監査と限定作業範囲が成立。
 2. ローカル統合: Python 3.11で試験・静的検査・画面外起動が成功し、受入追跡表に説明のない空欄が無い。
-   版0.3.0のポインタ入力統合では343試験と静的検査の成功を記録した。
+   版0.3.0のポインタ入力統合では344試験と静的検査の成功を記録した。
 3. 最終受理: Windows実機、高DPI、実データ、性能、配布物起動、PTR-AT-011を人間が
    確認するまで `pending`。

@@ -9,6 +9,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT_PATH = PROJECT_ROOT / "scripts" / "build_windows.ps1"
+ADDENDUM_PATH = PROJECT_ROOT / "docs" / "mouse-input-bindings-addendum.md"
 
 
 def _build_script() -> str:
@@ -22,8 +23,12 @@ def _sha256(path: Path) -> str:
 def test_public_pytest_configuration_collects_packaging_tests() -> None:
     config = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     pytest_options = config["tool"]["pytest"]["ini_options"]
+    package_init = (PROJECT_ROOT / "src" / "ternary_image_editor" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
 
     assert pytest_options["testpaths"] == ["tests"]
+    assert f'__version__ = "{config["project"]["version"]}"' in package_init
 
 
 def test_windows_build_requires_public_tests_and_checks_native_exit_codes() -> None:
@@ -38,6 +43,7 @@ def test_windows_build_requires_public_tests_and_checks_native_exit_codes() -> N
     assert 'Assert-NativeSuccess "PyInstaller"' in script
     assert '$PackagingTestPath = Join-Path $TestDirectory "test_packaging.py"' in script
     assert "$PackagingTestPath" in required_inputs
+    assert "$AddendumSource" in required_inputs
     assert "uv run pytest $TestDirectory" in script
     assert "Write-Warning" not in script
     assert script.index('Assert-NativeSuccess "uv sync"') > script.index("uv sync --locked")
@@ -48,7 +54,7 @@ def test_windows_build_requires_public_tests_and_checks_native_exit_codes() -> N
     assert script.index('Assert-NativeSuccess "PyInstaller"') > script.index("uv run pyinstaller")
 
 
-def test_windows_build_fails_closed_and_pins_the_normative_specification() -> None:
+def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
     script = _build_script()
 
     remove_index = script.index("Remove-Item -LiteralPath $BundlePath")
@@ -60,6 +66,8 @@ def test_windows_build_fails_closed_and_pins_the_normative_specification() -> No
     uniqueness_index = script.index("$Candidates.Count -ne 1")
     spec_copy_index = script.index("Copy-Item -LiteralPath $SpecSource")
     spec_hash_index = script.index("Bundled v1.5 specification hash mismatch")
+    addendum_copy_index = script.index("Copy-Item -LiteralPath $AddendumSource")
+    addendum_hash_index = script.index("Bundled mouse-input addendum hash mismatch")
     hash_index = script.index("Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256")
     report_index = script.index('Write-Host "配布候補: $ArtifactPath"')
 
@@ -69,10 +77,12 @@ def test_windows_build_fails_closed_and_pins_the_normative_specification() -> No
     assert remove_index < build_index < success_index
     assert success_index < existence_index < length_index < header_index
     assert header_index < uniqueness_index < spec_copy_index < spec_hash_index
-    assert spec_hash_index < hash_index < report_index
+    assert spec_hash_index < addendum_copy_index < addendum_hash_index
+    assert addendum_hash_index < hash_index < report_index
     assert "ternary_image_editor_spec_v1_5.html" in script
     spec_path = PROJECT_ROOT / "docs" / "ternary_image_editor_spec_v1_5.html"
     assert f'$ExpectedSpecHash = "{_sha256(spec_path)}"' in script
+    assert f'$ExpectedAddendumHash = "{_sha256(ADDENDUM_PATH)}"' in script
 
 
 def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -> None:
@@ -99,6 +109,7 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
         "pyproject.toml",
         "scripts/build_windows.ps1",
         "docs/ternary_image_editor_spec_v1_5.html",
+        "docs/mouse-input-bindings-addendum.md",
         "tests/test_packaging.py",
         "uv.lock",
     }
@@ -116,7 +127,9 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
         entry_points_path = next(
             name for name in wheel_names if name.endswith(".dist-info/entry_points.txt")
         )
+        metadata_path = next(name for name in wheel_names if name.endswith(".dist-info/METADATA"))
         entry_points = wheel.read(entry_points_path).decode("utf-8")
+        metadata = wheel.read(metadata_path).decode("utf-8")
 
     assert "ternary_image_editor/__init__.py" in wheel_names
     assert "ternary_image_editor/app.py" in wheel_names
@@ -125,3 +138,6 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
     assert "ternary_image_editor/assets/app_icon.svg" in wheel_names
     assert not any(name.startswith("tests/") for name in wheel_names)
     assert "ternary-image-editor = ternary_image_editor.app:main" in entry_points
+    project_config = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    project = tomllib.loads(project_config)["project"]
+    assert f"Version: {project['version']}\n" in metadata
