@@ -15,10 +15,10 @@ import numpy as np
 from PIL import Image, ImageCms, UnidentifiedImageError
 
 from .constants import (
-    BOTTOM_PROTECTED_END_Y,
-    BOTTOM_PROTECTED_START_Y,
-    IMAGE_SIZE,
+    JPEG_QUANTIZATION_RULE,
     SAVE_RGB,
+    TERNARY_JPEG_EXTENSIONS,
+    protected_start_y,
 )
 from .errors import (
     AtomicSaveError,
@@ -34,6 +34,7 @@ from .models import (
     LoadedLabels,
     LoadedOriginal,
     ProtectedNormalizationReport,
+    TernaryImportReport,
 )
 from .save_lock import acquire_output_save_lock
 
@@ -91,7 +92,7 @@ def inspect_png(path: Path) -> PngStructure:
 def load_original_image(
     path: Path,
     *,
-    expected_size: tuple[int, int] = IMAGE_SIZE,
+    expected_size: tuple[int, int] | None = None,
 ) -> LoadedOriginal:
     """8-bit L/RGB原画像を厳格に読取り、sRGB表示配列を返す。"""
 
@@ -118,7 +119,7 @@ def load_original_image(
                     (f"orientation={orientation}",),
                 )
             image.load()
-            if image.size != expected_size:
+            if expected_size is not None and image.size != expected_size:
                 raise ImageValidationError(
                     path,
                     "寸法不一致",
@@ -149,12 +150,17 @@ def load_original_image(
 def load_ternary_image(
     path: Path,
     *,
-    expected_size: tuple[int, int] = IMAGE_SIZE,
+    expected_size: tuple[int, int] | None = None,
 ) -> LoadedLabels:
-    """8-bitグレースケール/RGB PNGを厳格検査し、0/1/2配列へ変換する。"""
+    """厳格PNGまたは警告承認済みJPEGを0/1/2配列へ変換する。"""
 
+    path = Path(path)
+    if path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS:
+        return _load_label_jpeg(path, expected_size=expected_size)
+    if path.suffix.casefold() != ".png":
+        raise ImageValidationError(path, "対応していない三値画像形式")
     return _load_label_png(
-        Path(path),
+        path,
         expected_size=expected_size,
         require_rgb=False,
         normalize_protected=True,
@@ -164,7 +170,7 @@ def load_ternary_image(
 def load_output_image(
     path: Path,
     *,
-    expected_size: tuple[int, int] = IMAGE_SIZE,
+    expected_size: tuple[int, int] | None = None,
 ) -> LoadedLabels:
     """既存出力を厳格検査後、編集用に下端保護領域を正規化する。"""
 
@@ -179,7 +185,7 @@ def load_output_image(
 def validate_output_png(
     path: Path,
     *,
-    expected_size: tuple[int, int] = IMAGE_SIZE,
+    expected_size: tuple[int, int] | None = None,
 ) -> LoadedLabels:
     """保存成果物が8-bit RGB、アルファなし、許容三色のみか再読込検査する。"""
 
@@ -219,7 +225,7 @@ def save_labels_atomic(
     force: bool = False,
     source_baselines: Iterable[FileBaseline] = (),
     allow_stale_sources: bool = False,
-    expected_size: tuple[int, int] = IMAGE_SIZE,
+    expected_size: tuple[int, int] | None = None,
 ) -> FileFingerprint:
     """内部ラベル配列を検証付き一時PNG経由で置換保存する。
 
@@ -306,7 +312,7 @@ def save_labels_atomic(
 def _load_label_png(
     path: Path,
     *,
-    expected_size: tuple[int, int],
+    expected_size: tuple[int, int] | None,
     require_rgb: bool,
     normalize_protected: bool = False,
     require_protected_none: bool = False,
@@ -353,18 +359,140 @@ def _load_label_png(
         fingerprint=fingerprint,
         baseline_labels=baseline_labels,
         normalization=normalization,
+        import_report=TernaryImportReport(
+            source_format="PNG",
+            label_counts=_label_counts(baseline_labels),
+        ),
     )
+
+
+def _load_label_jpeg(
+    path: Path,
+    *,
+    expected_size: tuple[int, int] | None,
+) -> LoadedLabels:
+    """JPEGをsRGB画素へ復号し、決定的な最近傍規則で三値化する。
+
+    呼出側が不可逆変換の警告と同意を担う。この関数自身は入力へ一切書き込まない。
+    """
+
+    data, fingerprint = _read_snapshot(path)
+    try:
+        with Image.open(io.BytesIO(data)) as verifier:
+            if verifier.format != "JPEG":
+                raise ImageValidationError(path, "拡張子はJPEGだが実形式がJPEGではない")
+            verifier.verify()
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format != "JPEG":
+                raise ImageValidationError(path, "JPEGとして復号できない")
+            bits = int(getattr(image, "bits", 8))
+            if bits != 8:
+                raise ImageValidationError(
+                    path,
+                    "三値化するJPEGは8-bitでなければならない",
+                    (f"bits={bits}",),
+                )
+            if image.mode not in {"L", "RGB"}:
+                raise ImageValidationError(
+                    path,
+                    "三値化するJPEGは8-bit RGBまたは8-bitグレースケールでなければならない",
+                    (f"mode={image.mode}",),
+                )
+            if "transparency" in image.info:
+                raise ImageValidationError(path, "透明情報を含むJPEGは使用できない")
+            orientation = image.getexif().get(274)
+            if orientation not in {None, 1}:
+                raise ImageValidationError(
+                    path,
+                    "Orientation 2～8の三値JPEGは使用できない",
+                    (f"orientation={orientation}",),
+                )
+            image.load()
+            if expected_size is not None and image.size != expected_size:
+                raise ImageValidationError(
+                    path,
+                    "寸法不一致",
+                    (
+                        f"期待={expected_size[0]}x{expected_size[1]}",
+                        f"実際={image.width}x{image.height}",
+                    ),
+                )
+            converted = _convert_original_to_srgb(image, path)
+            try:
+                rgb = np.asarray(converted, dtype=np.uint8).copy()
+            finally:
+                if converted is not image:
+                    converted.close()
+    except ImageValidationError:
+        raise
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        ValueError,
+    ) as exc:
+        raise ImageValidationError(path, "JPEGの復号に失敗", (str(exc),)) from exc
+
+    baseline_labels = quantize_srgb_to_labels(rgb)
+    labels, changed_pixels = normalized_protected_labels_copy(baseline_labels)
+    return LoadedLabels(
+        labels=labels,
+        path=path,
+        fingerprint=fingerprint,
+        baseline_labels=baseline_labels,
+        normalization=ProtectedNormalizationReport(changed_pixels=changed_pixels),
+        import_report=TernaryImportReport(
+            source_format="JPEG",
+            quantized=True,
+            quantization_rule=JPEG_QUANTIZATION_RULE,
+            label_counts=_label_counts(baseline_labels),
+        ),
+        requires_save=True,
+    )
+
+
+def quantize_srgb_to_labels(pixels: np.ndarray) -> np.ndarray:
+    """sRGB uint8画素を黒・灰・白への二乗距離最小で0/1/2化する。
+
+    三保存色は各成分が同値なので、二乗距離の比較をRGB成分和の等価な
+    整数境界へ展開し、巨大な ``H×W×3×3`` 中間配列を作らない。成分和192の
+    黒・灰tieは黒を採り、灰・白の境界は574と575の間にある。乱数、dither、
+    周辺画素参照はいずれも行わない。
+    """
+
+    array = np.asarray(pixels)
+    if array.dtype != np.uint8:
+        raise TypeError("三値化元はuint8でなければならない")
+    if array.ndim == 2:
+        channel_sum = array.astype(np.uint16) * 3
+    elif array.ndim == 3 and array.shape[2] == 3:
+        channel_sum = np.sum(array, axis=2, dtype=np.uint16)
+    else:
+        raise ValueError("三値化元はH×WまたはH×W×3でなければならない")
+    if 0 in channel_sum.shape:
+        raise ValueError("三値化元の寸法は正でなければならない")
+
+    labels = np.zeros(channel_sum.shape, dtype=np.uint8)
+    labels[channel_sum > 192] = 1
+    labels[channel_sum > 574] = 2
+    return labels
+
+
+def _label_counts(labels: np.ndarray) -> tuple[int, int, int]:
+    counts = np.bincount(np.asarray(labels, dtype=np.uint8).ravel(), minlength=3)
+    return int(counts[0]), int(counts[1]), int(counts[2])
 
 
 def _validate_png_structure(
     structure: PngStructure,
     path: Path,
     *,
-    expected_size: tuple[int, int],
+    expected_size: tuple[int, int] | None,
     require_rgb: bool,
 ) -> None:
     actual_size = (structure.width, structure.height)
-    if actual_size != expected_size:
+    if expected_size is not None and actual_size != expected_size:
         raise ImageValidationError(
             path,
             "寸法不一致",
@@ -448,12 +576,16 @@ def _raise_invalid_colors(path: Path, count: int, examples: list[str]) -> None:
 def _validate_labels_for_save(
     labels: np.ndarray,
     output_path: Path,
-    expected_size: tuple[int, int],
+    expected_size: tuple[int, int] | None,
 ) -> np.ndarray:
     if not isinstance(labels, np.ndarray) or labels.dtype != np.uint8 or labels.ndim != 2:
         raise AtomicSaveError(output_path, "内部ラベルはuint8二次元配列でなければならない")
-    expected_shape = (expected_size[1], expected_size[0])
-    if labels.shape != expected_shape:
+    if 0 in labels.shape:
+        raise AtomicSaveError(output_path, "内部ラベル寸法は正でなければならない")
+    expected_shape = (
+        None if expected_size is None else (expected_size[1], expected_size[0])
+    )
+    if expected_shape is not None and labels.shape != expected_shape:
         raise AtomicSaveError(
             output_path,
             f"内部ラベル寸法が不正: 期待={expected_shape}, 実際={labels.shape}",
@@ -545,9 +677,9 @@ def _tag_values(value: object) -> tuple[int, ...]:
 
 
 def _protected_view(labels: np.ndarray) -> np.ndarray:
-    """寸法が小さい試験配列では空となる、固定座標の下端保護領域。"""
+    """実画像高さから求めた下端保護領域を返す。"""
 
-    return labels[BOTTOM_PROTECTED_START_Y:BOTTOM_PROTECTED_END_Y, :]
+    return labels[protected_start_y(int(labels.shape[0])) :, :]
 
 
 def _force_protected_none(labels: np.ndarray) -> int:

@@ -31,6 +31,31 @@ class ImageValidationError(TernaryEditorError):
 
 
 @dataclass(slots=True)
+class PairDimensionError(TernaryEditorError):
+    original_path: Path
+    original_size: tuple[int, int]
+    ternary_path: Path
+    ternary_size: tuple[int, int]
+
+    def __str__(self) -> str:
+        return (
+            "画像対の寸法が一致しない: "
+            f"原画像={self.original_path} "
+            f"({self.original_size[0]}x{self.original_size[1]}), "
+            f"三値画像={self.ternary_path} "
+            f"({self.ternary_size[0]}x{self.ternary_size[1]})"
+        )
+
+
+@dataclass(slots=True)
+class JpegImportConfirmationRequired(TernaryEditorError):
+    path: Path
+
+    def __str__(self) -> str:
+        return f"JPEG三値画像の明示確認が必要: {self.path}"
+
+
+@dataclass(slots=True)
 class AtomicSaveError(TernaryEditorError):
     path: Path
     reason: str

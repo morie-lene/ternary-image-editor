@@ -23,16 +23,15 @@ from PySide6.QtWidgets import QWidget
 
 from .canvas_transform import CanvasTransform
 from .constants import (
-    BOTTOM_PROTECTED_START_Y,
     DEFAULT_BRUSH_DIAMETER,
     DEFAULT_PSEUDO_RGB,
     SAVE_RGB,
+    protected_start_y,
 )
 from .operations import brush_shape_mask
 
 UInt8Array = NDArray[np.uint8]
 BoolArray = NDArray[np.bool_]
-_PROTECTED_Y_START = BOTTOM_PROTECTED_START_Y
 
 
 class EditTool(StrEnum):
@@ -443,7 +442,7 @@ class ImageCanvas(QWidget):
         if pixel is None:
             event.accept()
             return
-        if pixel[1] >= _PROTECTED_Y_START:
+        if pixel[1] >= protected_start_y(self.transform.image_height):
             self.interaction_blocked.emit("下端100画素・強制無領域")
             event.accept()
             return
@@ -702,9 +701,10 @@ class ImageCanvas(QWidget):
             painter.drawRect(QRectF(x1, y1, x2 - x1, y2 - y1))
 
     def _paint_protected_region(self, painter: QPainter) -> None:
-        if self.transform.image_height <= _PROTECTED_Y_START:
+        protected_start = protected_start_y(self.transform.image_height)
+        if protected_start >= self.transform.image_height:
             return
-        left, top = self.transform.image_to_canvas(0, _PROTECTED_Y_START)
+        left, top = self.transform.image_to_canvas(0, protected_start)
         right, bottom = self.transform.image_to_canvas(
             self.transform.image_width,
             self.transform.image_height,
@@ -775,7 +775,7 @@ class ImageCanvas(QWidget):
                 0,
                 0,
                 self.transform.image_width,
-                min(self.transform.image_height, _PROTECTED_Y_START),
+                protected_start_y(self.transform.image_height),
             )
         )
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
@@ -809,7 +809,9 @@ class ImageCanvas(QWidget):
             self.cursor_position_changed.emit(None)
         else:
             self._cursor_image = image_position
-            self._set_cursor_protected(pixel[1] >= _PROTECTED_Y_START)
+            self._set_cursor_protected(
+                pixel[1] >= protected_start_y(self.transform.image_height)
+            )
             self.cursor_position_changed.emit(pixel)
         self.update()
 

@@ -19,7 +19,7 @@ from .constants import (
     TERNARY_PREFIX_GROUP,
 )
 from .errors import FolderAccessError
-from .models import ExcludedItem, ImagePair, PairingResult, PairKey
+from .models import ExcludedItem, ImagePair, PairingMode, PairingResult, PairKey
 
 ImageKind = Literal["original", "ternary"]
 
@@ -29,7 +29,9 @@ _DIGIT_RUN = re.compile(r"(\d+)")
 def natural_sort_key(value: str) -> tuple[tuple[int, int | str], ...]:
     """数字列を数値として扱う、大文字小文字非依存の整列キーを返す。"""
 
-    normalized = unicodedata.normalize("NFC", value)
+    # NFKC is used for ordering only.  Strict identity extraction below remains
+    # NFC-based, so compatibility characters never become pair identities.
+    normalized = unicodedata.normalize("NFKC", value)
     return tuple(
         (1, int(part)) if part.isdecimal() else (0, part.casefold())
         for part in _DIGIT_RUN.split(normalized)
@@ -87,26 +89,104 @@ def pair_directories(
     original_dir: Path,
     ternary_dir: Path,
     output_dir: Path,
+    *,
+    mode: PairingMode | str = PairingMode.STRICT_KEY,
 ) -> PairingResult:
-    """三フォルダを検査し、仕様に適合する一対一の画像対だけを返す。"""
+    """対応計画を作り、出力先の書込検査まで完了して返す。
+
+    GUIの自然順確認では、確認前に出力先へ作用を残さないため
+    :func:`plan_pairing` と :func:`finalize_pairing` を二相で用いる。
+    """
+
+    result = plan_pairing(original_dir, ternary_dir, output_dir, mode=mode)
+    return finalize_pairing(result, output_dir)
+
+
+def plan_pairing(
+    original_dir: Path,
+    ternary_dir: Path,
+    output_dir: Path,
+    *,
+    mode: PairingMode | str = PairingMode.STRICT_KEY,
+) -> PairingResult:
+    """入力を非再帰走査し、出力先へ書き込まずに対応計画を返す。"""
 
     original_dir = Path(original_dir)
     ternary_dir = Path(ternary_dir)
     output_dir = Path(output_dir)
+    pairing_mode = PairingMode(mode)
 
     for input_dir in (original_dir, ternary_dir):
         if _same_physical_folder(output_dir, input_dir):
             raise FolderAccessError(output_dir, "出力フォルダが入力フォルダと同一")
 
-    originals, original_excluded = _scan_candidates(original_dir, "original")
-    ternaries, ternary_excluded = _scan_candidates(ternary_dir, "ternary")
-    output_writable, output_warning = check_output_writable(output_dir)
+    original_paths, original_excluded = _scan_supported_paths(original_dir, "original")
+    ternary_paths, ternary_excluded = _scan_supported_paths(ternary_dir, "ternary")
 
     result = PairingResult(
         excluded=[*original_excluded, *ternary_excluded],
-        output_writable=output_writable,
-        output_warning=output_warning,
+        pairing_mode=pairing_mode,
+        original_candidate_count=len(original_paths),
+        ternary_candidate_count=len(ternary_paths),
     )
+
+    if not original_paths or not ternary_paths:
+        result.blocking_reason = (
+            "読込候補数が不足: "
+            f"原画像={len(original_paths)}件、三値画像={len(ternary_paths)}件。"
+            "それぞれ1件以上の対応形式画像が必要"
+        )
+        result.excluded.append(
+            ExcludedItem(
+                reason_code="empty_candidate_group",
+                message=(
+                    f"読込候補数が不足: 原画像={len(original_paths)}件、"
+                    f"三値画像={len(ternary_paths)}件"
+                ),
+                paths=tuple(_sorted_paths([*original_paths, *ternary_paths])),
+            )
+        )
+        return result
+
+    if len(original_paths) != len(ternary_paths):
+        result.blocking_reason = (
+            f"画像群の件数不一致: 原画像={len(original_paths)}件、"
+            f"三値画像={len(ternary_paths)}件"
+        )
+        result.excluded.append(
+            ExcludedItem(
+                reason_code="candidate_count_mismatch",
+                message=result.blocking_reason,
+                paths=tuple(_sorted_paths([*original_paths, *ternary_paths])),
+            )
+        )
+        return result
+
+    if pairing_mode is PairingMode.NATURAL_ORDER:
+        originals_sorted = sorted(original_paths, key=_natural_path_sort_key)
+        ternaries_sorted = sorted(ternary_paths, key=_natural_path_sort_key)
+        tentative_pairs = [
+            ImagePair(
+                key=None,
+                original_path=original_path,
+                ternary_path=ternary_path,
+                output_path=output_dir / f"{ternary_path.stem}.png",
+                ternary_stem=ternary_path.stem,
+                pairing_mode=pairing_mode,
+            )
+            for original_path, ternary_path in zip(
+                originals_sorted,
+                ternaries_sorted,
+                strict=True,
+            )
+        ]
+        _install_collision_checked_pairs(result, tentative_pairs, block_all=True)
+        return result
+
+    originals, original_key_excluded = _index_strict_candidates(original_paths, "original")
+    ternaries, ternary_key_excluded = _index_strict_candidates(ternary_paths, "ternary")
+    result.excluded.extend(original_key_excluded)
+    result.excluded.extend(ternary_key_excluded)
     tentative_pairs: list[ImagePair] = []
 
     keys = sorted(
@@ -147,9 +227,39 @@ def pair_directories(
                 ternary_path=ternary_path,
                 output_path=output_dir / f"{ternary_path.stem}.png",
                 ternary_stem=ternary_path.stem,
+                pairing_mode=pairing_mode,
             )
         )
 
+    _install_collision_checked_pairs(result, tentative_pairs, block_all=False)
+    result.pairs.sort(
+        key=lambda pair: (
+            natural_sort_key(pair.ternary_stem),
+            pair.ternary_stem,
+            str(pair.ternary_path.resolve(strict=False)),
+        )
+    )
+    return result
+
+
+def finalize_pairing(result: PairingResult, output_dir: Path) -> PairingResult:
+    """確認済み計画へ出力先の作成・試験書込結果を付加する。"""
+
+    if result.output_checked or result.blocking_reason is not None:
+        return result
+    output_writable, output_warning = check_output_writable(Path(output_dir))
+    result.output_writable = output_writable
+    result.output_warning = output_warning
+    result.output_checked = True
+    return result
+
+
+def _install_collision_checked_pairs(
+    result: PairingResult,
+    tentative_pairs: list[ImagePair],
+    *,
+    block_all: bool,
+) -> None:
     collisions: dict[str, list[ImagePair]] = defaultdict(list)
     for pair in tentative_pairs:
         collisions[_windows_path_key(pair.output_path)].append(pair)
@@ -174,27 +284,23 @@ def pair_directories(
             )
         )
 
+    if block_all and collided_output_keys:
+        result.blocking_reason = "自然順の全対応を保存できない出力名衝突がある"
+        result.pairs = []
+        return
     result.pairs = [
         pair
         for pair in tentative_pairs
         if _windows_path_key(pair.output_path) not in collided_output_keys
     ]
-    result.pairs.sort(
-        key=lambda pair: (
-            natural_sort_key(pair.ternary_stem),
-            pair.ternary_stem,
-            str(pair.ternary_path.resolve(strict=False)),
-        )
-    )
-    return result
 
 
-def _scan_candidates(
+def _scan_supported_paths(
     directory: Path,
     kind: ImageKind,
-) -> tuple[dict[PairKey, list[Path]], list[ExcludedItem]]:
+) -> tuple[list[Path], list[ExcludedItem]]:
     extensions = ORIGINAL_EXTENSIONS if kind == "original" else TERNARY_EXTENSIONS
-    candidates: dict[PairKey, list[Path]] = defaultdict(list)
+    candidates: list[Path] = []
     excluded: list[ExcludedItem] = []
 
     for path in _direct_files(directory):
@@ -207,6 +313,17 @@ def _scan_candidates(
                 )
             )
             continue
+        candidates.append(path)
+    return candidates, excluded
+
+
+def _index_strict_candidates(
+    paths: Iterable[Path],
+    kind: ImageKind,
+) -> tuple[dict[PairKey, list[Path]], list[ExcludedItem]]:
+    candidates: dict[PairKey, list[Path]] = defaultdict(list)
+    excluded: list[ExcludedItem] = []
+    for path in paths:
         try:
             key = extract_pair_key(path, kind)
         except ValueError as exc:
@@ -222,6 +339,17 @@ def _scan_candidates(
     for paths in candidates.values():
         paths.sort(key=_path_sort_key)
     return candidates, excluded
+
+
+def _scan_candidates(
+    directory: Path,
+    kind: ImageKind,
+) -> tuple[dict[PairKey, list[Path]], list[ExcludedItem]]:
+    """旧来の厳格走査単位を保つ内部互換ラッパー。"""
+
+    paths, excluded = _scan_supported_paths(directory, kind)
+    candidates, key_excluded = _index_strict_candidates(paths, kind)
+    return candidates, [*excluded, *key_excluded]
 
 
 def _direct_files(directory: Path) -> list[Path]:
@@ -243,6 +371,14 @@ def _path_sort_key(path: Path) -> tuple[str, str]:
     rendered = str(path.resolve(strict=False))
     normalized = unicodedata.normalize("NFC", rendered)
     return normalized.casefold(), rendered
+
+
+def _natural_path_sort_key(
+    path: Path,
+) -> tuple[tuple[tuple[int, int | str], ...], str, str]:
+    rendered = str(path.resolve(strict=False))
+    normalized_name = unicodedata.normalize("NFKC", path.name)
+    return natural_sort_key(normalized_name), normalized_name.casefold(), rendered
 
 
 def _windows_path_key(path: Path) -> str:

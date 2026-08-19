@@ -12,7 +12,6 @@ from numpy.typing import NDArray
 from scipy import ndimage
 
 from .constants import (
-    BOTTOM_PROTECTED_START_Y,
     BRUSH_THRESHOLD_DEVICE_PX,
     DEFAULT_PSEUDO_RGB,
     MAX_BOUNDARY_THICKNESS,
@@ -22,6 +21,7 @@ from .constants import (
     SAVE_RGB,
     SMALL_COMPONENT_MAX_AREA,
     Label,
+    protected_start_y,
 )
 
 BrushShape: TypeAlias = Literal["circle", "square"]
@@ -29,7 +29,6 @@ BoundingBox: TypeAlias = tuple[int, int, int, int]
 
 _FOUR_CONNECTED = ndimage.generate_binary_structure(2, 1)
 _EIGHT_CONNECTED = ndimage.generate_binary_structure(2, 2)
-_PROTECTED_Y_START = BOTTOM_PROTECTED_START_Y
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,7 +241,7 @@ def stroke_mask(
         return result
 
     start_anchor = _point_to_anchor(stroke_points[0])
-    if start_anchor[1] >= _PROTECTED_Y_START:
+    if start_anchor[1] >= protected_start_y(height):
         return result
     if len(stroke_points) == 1:
         _add_discrete_stamp(result, start_anchor, brush_diameter, shape)
@@ -337,7 +336,7 @@ def flood_fill4(
     height, width = labels.shape
     if not (0 <= seed_x < width and 0 <= seed_y < height):
         return result
-    if seed_y >= _PROTECTED_Y_START:
+    if seed_y >= protected_start_y(height):
         return result
 
     source = int(labels[seed_y, seed_x])
@@ -636,14 +635,16 @@ def _validated_label_output(labels: NDArray[np.uint8]) -> NDArray[np.uint8]:
 def _editable_pixel_mask(image_shape: tuple[int, int]) -> NDArray[np.bool_]:
     height, width = image_shape
     editable = np.ones((height, width), dtype=np.bool_)
-    if height > _PROTECTED_Y_START:
-        editable[_PROTECTED_Y_START:, :] = False
+    start = protected_start_y(height)
+    if start < height:
+        editable[start:, :] = False
     return editable
 
 
 def _exclude_protected_rows(mask: NDArray[np.bool_]) -> None:
-    if mask.shape[0] > _PROTECTED_Y_START:
-        mask[_PROTECTED_Y_START:, :] = False
+    start = protected_start_y(int(mask.shape[0]))
+    if start < mask.shape[0]:
+        mask[start:, :] = False
 
 
 def _point_to_anchor(point: NDArray[np.float64]) -> tuple[int, int]:
@@ -678,7 +679,7 @@ def _add_template_stamp(
     clipped_left = max(left, 0)
     clipped_top = max(top, 0)
     clipped_right = min(right, width)
-    clipped_bottom = min(bottom, height, _PROTECTED_Y_START)
+    clipped_bottom = min(bottom, height, protected_start_y(height))
     if clipped_left >= clipped_right or clipped_top >= clipped_bottom:
         return
 
