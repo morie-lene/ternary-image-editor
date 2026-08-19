@@ -35,7 +35,7 @@ foreach ($RequiredAsset in @($ExecutableIconSource, $RuntimeIconSource)) {
 uv sync --locked --python 3.11
 Assert-NativeSuccess "uv sync"
 if (Test-Path -LiteralPath $TestDirectory -PathType Container) {
-    uv run pytest
+    uv run pytest $TestDirectory
     Assert-NativeSuccess "pytest"
 }
 else {

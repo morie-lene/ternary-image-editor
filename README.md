@@ -43,11 +43,14 @@ macOS/Linuxでも開発確認には同じ入口を使えるが、配布対象と
 行う。
 
 ```powershell
-uv run pytest
+uv run pytest tests
 uv run ruff check .
 ```
 
-公開取得物で実行できる一般検査は次のとおり。
+`pyproject.toml`から、公開取得物に存在しない`tests/`を固定参照しない。公開取得物で
+`uv run pytest`を実行すると、pytestの規則どおり「試験0件」の終了符号5になるが、
+`testpaths`の参照切れ警告は出ない。この結果は試験成功の証拠にはならない。公開取得物で
+実行できる一般検査は次のとおり。
 
 ```powershell
 uv run ruff check .
