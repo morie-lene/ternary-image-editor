@@ -1,4 +1,4 @@
-"""Validated version-1 settings model and QSettings persistence adapter."""
+"""Validated settings-schema v2 model and QSettings persistence adapter."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from .action_registry import (
     ShortcutAssignments,
     ShortcutBindings,
     ShortcutSlot,
+    canonical_binding,
     canonical_shortcut,
     default_shortcuts,
     shortcut_is_reserved,
@@ -28,7 +29,7 @@ from .constants import (
     MIN_BRUSH_DIAMETER,
 )
 
-SETTINGS_SCHEMA_VERSION = 1
+SETTINGS_SCHEMA_VERSION = 2
 DEFAULT_PSEUDO_COLORS = tuple(
     f"#{red:02X}{green:02X}{blue:02X}" for red, green, blue in DEFAULT_PSEUDO_RGB
 )
@@ -261,6 +262,15 @@ class SettingsWorkCopy:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _ShortcutLoadCandidate:
+    operation_id: str
+    slot: ShortcutSlot
+    value: str | None
+    fallback: str | None
+    explicit_valid: bool
+
+
 class SettingsRepository:
     """Per-user, schema-versioned QSettings storage.
 
@@ -277,12 +287,12 @@ class SettingsRepository:
         self.warnings.clear()
         defaults = AppSettings()
         schema = self._read_int("schema/version", 0, minimum=0, maximum=2**31 - 1)
-        if schema not in {0, SETTINGS_SCHEMA_VERSION}:
+        if schema not in {0, 1, SETTINGS_SCHEMA_VERSION}:
             self.warnings.append(
                 f"unknown settings schema {schema}; known fields were read conservatively"
             )
         colors = self._load_colors(defaults)
-        shortcut_bindings = self._load_shortcuts()
+        shortcut_bindings = self._load_shortcuts(schema)
         return AppSettings(
             original_folder=self._read_str("folders/original", defaults.original_folder),
             ternary_folder=self._read_str("folders/ternary", defaults.ternary_folder),
@@ -381,15 +391,15 @@ class SettingsRepository:
                 self.warnings.append("invalid legacy pseudo palette; defaults were used")
         return defaults.pseudo_colors
 
-    def _load_shortcuts(self) -> dict[str, ShortcutBindings]:
-        result: dict[str, ShortcutBindings] = {}
-        seen: set[str] = set()
+    def _load_shortcuts(self, schema: int) -> dict[str, ShortcutBindings]:
         defaults = default_shortcuts()
+        parser = canonical_shortcut if schema in {0, 1} else canonical_binding
+        candidates: list[_ShortcutLoadCandidate] = []
         for spec in OPERATION_SPECS:
-            values: dict[ShortcutSlot, str | None] = {}
             for slot in (ShortcutSlot.PRIMARY, ShortcutSlot.SECONDARY):
                 key = f"shortcuts/{spec.operation_id}/{slot.value}"
                 fallback = defaults[spec.operation_id].value(slot)
+                explicit_valid = False
                 if not self.settings.contains(key):
                     candidate = fallback
                 else:
@@ -398,33 +408,92 @@ class SettingsRepository:
                         candidate = None
                     else:
                         try:
-                            candidate = canonical_shortcut(str(raw))
+                            candidate = parser(str(raw))
                             if shortcut_is_reserved(candidate):
                                 raise ValueError("reserved shortcut")
+                            probe = (
+                                ShortcutBindings(candidate, None)
+                                if slot is ShortcutSlot.PRIMARY
+                                else ShortcutBindings(None, candidate)
+                            )
+                            ShortcutAssignments(
+                                {spec.operation_id: probe},
+                                specs=(spec,),
+                            )
                         except (TypeError, ValueError):
                             candidate = fallback
                             self.warnings.append(
-                                f"invalid shortcut {spec.operation_id}/{slot.value}; default used"
+                                f"invalid shortcut {spec.operation_id}/{slot.value}; "
+                                "default fallback requested"
                             )
-                if candidate in seen:
-                    replacement = fallback if fallback not in seen else None
-                    self.warnings.append(
-                        f"conflicting shortcut {candidate}; {spec.operation_id}/{slot.value} "
-                        "was reset"
+                        else:
+                            explicit_valid = True
+                candidates.append(
+                    _ShortcutLoadCandidate(
+                        operation_id=spec.operation_id,
+                        slot=slot,
+                        value=candidate,
+                        fallback=fallback,
+                        explicit_valid=explicit_valid,
                     )
-                    candidate = replacement
-                if candidate is not None:
-                    seen.add(candidate)
-                values[slot] = candidate
-            try:
-                result[spec.operation_id] = ShortcutBindings(
-                    values[ShortcutSlot.PRIMARY], values[ShortcutSlot.SECONDARY]
                 )
+
+        resolved: dict[tuple[str, ShortcutSlot], str | None] = {}
+        seen: set[str] = set()
+        deferred: list[tuple[_ShortcutLoadCandidate, bool]] = []
+        for candidate in candidates:
+            key = (candidate.operation_id, candidate.slot)
+            if not candidate.explicit_valid:
+                deferred.append((candidate, False))
+                continue
+            value = candidate.value
+            if value in seen:
+                self.warnings.append(
+                    f"conflicting shortcut {value}; {candidate.operation_id}/"
+                    f"{candidate.slot.value} was reset"
+                )
+                deferred.append(
+                    (
+                        _ShortcutLoadCandidate(
+                            operation_id=candidate.operation_id,
+                            slot=candidate.slot,
+                            value=candidate.fallback,
+                            fallback=candidate.fallback,
+                            explicit_valid=False,
+                        ),
+                        True,
+                    )
+                )
+                continue
+            if value is not None:
+                seen.add(value)
+            resolved[key] = value
+
+        for candidate, conflict_reported in deferred:
+            key = (candidate.operation_id, candidate.slot)
+            value = candidate.value
+            if value is not None and value in seen:
+                if not conflict_reported:
+                    self.warnings.append(
+                        f"conflicting shortcut {value}; {candidate.operation_id}/"
+                        f"{candidate.slot.value} was reset"
+                    )
+                value = None
+            if value is not None:
+                seen.add(value)
+            resolved[key] = value
+
+        result: dict[str, ShortcutBindings] = {}
+        for spec in OPERATION_SPECS:
+            primary = resolved[(spec.operation_id, ShortcutSlot.PRIMARY)]
+            secondary = resolved[(spec.operation_id, ShortcutSlot.SECONDARY)]
+            try:
+                result[spec.operation_id] = ShortcutBindings(primary, secondary)
             except ValueError:
                 self.warnings.append(
                     f"duplicate primary/secondary for {spec.operation_id}; secondary cleared"
                 )
-                result[spec.operation_id] = ShortcutBindings(values[ShortcutSlot.PRIMARY], None)
+                result[spec.operation_id] = ShortcutBindings(primary, None)
         return result
 
     def _read_value(

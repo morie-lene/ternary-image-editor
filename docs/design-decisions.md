@@ -16,6 +16,7 @@
 | 内容基準・identity.content-baseline | 未保存判定の比較対象 | 読込時は下端正規化前の検証済み配列、正常保存後は保存済み正規化配列 | 履歴上の保存点、現在配列、入力ファイル身元 |
 | 画像改訂・identity.image-revision | 同一セッション内の非同期結果順序 | 単調な改訂番号 | 履歴状態、画像対、内容基準 |
 | 操作・identity.operation | 主画面命令の永続的同一性 | v1.5操作表の不変操作ID、全38件 | 表示名、既定キー、現在割当、QAction物体 |
+| 入力割当・identity.input-binding | 一つの操作slotへ割り当てる永続的な入力 | 鍵盤PortableTextまたは追補の正規化ポインタtoken | 操作ID、物理event、button番号、HOLD起動状態 |
 | 内容指紋・evidence.content-fingerprint | 原画像・入力三値・出力の外部変更証拠 | SHA-256等の内容証拠 | ファイル身元、同じ編集内容、保存許可 |
 | 保存ロック対象・identity.output-lock-target | 一つの正式出力名に対する協調排他対象 | 正式出力パスから決定した安定側車lockパス | 出力内容指紋、OS全体の排他、非協調writer |
 
@@ -47,6 +48,21 @@
 | 画面外geometry回復・decision.window.geometry-recovery | adopted | 保存geometryが現在の画面集合と交差しない場合は主画面を既定画面の可視範囲へ戻す | §15.2のウィンドウ位置・寸法、SET-004。複数モニター変更後の到達不能を避ける |
 | アプリケーションアイコン資産・decision.packaging.application-icon | adopted | SVGを編集正本、PNGをQt実行時資産、ICOをWindows exe資産として分離し、`QApplication.setWindowIcon`とPyInstaller `--icon`へ同じ図案族を接続する | クリック起動、ウィンドウ、タスクバー、Explorerの視覚同一性を保つ。PNG同梱hashとWindows実表示に齟齬があれば差戻す |
 
+## マウス入力割当追補で採用する判断
+
+この節は `TIE-ADD-PTR-001` に属する。v1.5本文へ遡及して書き換えた判断ではない。
+
+| 判断参照 | 状態 | 内容 | 根拠と差戻し条件 |
+| --- | --- | --- | --- |
+| 追補優先境界・decision.pointer.addendum-precedence | adopted | KEY-001、固定入力、AT-078、対象外一覧のマウス割当部分だけを追補で上書きし、v1.5 HTMLとhashを保持する | 要求身元と変更履歴を保存する。ほかのv1.5契約との衝突を発見したら公開を止める |
+| 操作同一性維持・decision.pointer.shared-operation-registry | adopted | 38操作を増やさず、既存の主・副割当と競合規則へポインタtokenを加える | 入力方式を操作そのものへ昇格させず、架空の39件目を作らない |
+| ポインタ表現・decision.pointer.canonical-token | adopted | 七基底tokenへCtrl/Alt/Shiftだけを許し、この順の文字列表現で保存・比較する | 機器button番号や表示名を永続identityにしない。Windows実eventに齟齬があればmappingを差戻す |
+| Canvas入力境界・decision.pointer.canvas-scope | adopted | ポインタ割当は主画像Canvas上だけで発火し、設定画面と一般UIを奪わない | 応用全体やOS全域の捕捉は権限・誤操作範囲を不必要に広げる |
+| 固定操作との優先・decision.pointer.exact-override | adopted | 一時パン中の左button、割当済み完全一致、未割当固定操作の順を明示し、割当操作が無効でもfallbackしない | 同じ物理入力から意図しない別操作が発火するのを避ける。固定操作を失う割当前には確認する |
+| HOLD解放・decision.pointer.latched-release | adopted | 押下時tokenを物理buttonへlatchし、解放時修飾状態に依存せず解除する。非活性化・焦点・捕捉喪失・設定適用では全解除する | stuck状態を避ける。modalを含むWindows event経路に齟齬があれば公開判断を保留する |
+| 描画所有権・decision.pointer.stroke-ownership | adopted | 描画中は完成・取消だけを許し、ほかのポインタ入力を発火も予約もせず消費する | `decision.stroke.atomic-cancel`をポインタ割当より優先し、一筆を一取引として保つ |
+| 設定移行・decision.pointer.settings-schema-v2 | adopted | 既存pathを維持してschema 2へ上げ、schema 0/1の鍵盤割当を無警告で保持する。破損欄は低優先で既定復元し、別欄の正常な明示割当と競合する時は未割当にして正常値を保つ | 追補追加や破損一欄を、既存設定または別欄の正常値を失う理由にしない。実設定移行失敗なら差戻す |
+
 ## 置換済み判断
 
 履歴を消すと、旧試験や説明がなぜ無効になったか判らなくなるため、置換済みとして残す。
@@ -64,6 +80,7 @@
 | Windowsロック意味差・risk.save.windows-lock-semantics | POSIX開発環境で非待機排他・安定inode・失敗時不変を自動検証 | Windows 10/11での実プロセス間 `msvcrt` lock、強制終了後回復、共有フォルダ差 | Windows AT-070を実施 |
 | IME・配列差・risk.keys.windows-ime-layout | PortableText正規化とNativeText変換を局所検証 | 日本語入力方式ON/OFF、JIS/US配列、予約キーのWindows実挙動 | Windows AT-050を実施 |
 | 小寸法アイコン・risk.packaging.small-icon-optics | 1024px編集正本から16/32/48/64/128/256pxをICOへ収載し、64px以上の図柄同一性を局所確認 | 16/32pxで観察窓、境界画素、正方形筆頭の全意味を同時に識別できること | WindowsのExplorer、タスクバー、ウィンドウで実表示し、必要なら小寸法光学別稿を作る |
+| Windowsポインタevent差・risk.pointer.windows-event-semantics | token正規化、Canvas限定、button解放・応用非活性化・設定適用によるHOLD解除を局所自動検証。FocusOut・UngrabMouseは実装証拠まで | Back/Forwardの機器差、precision touchpadの分割・inertia、modal中release、schema 0/1実設定保持 | Windows PTR-AT-011を実施し、未解放または過剰起動があれば配布を止める |
 
 ## 保留中の人間判断
 
@@ -75,3 +92,4 @@
 | 配布形式・decision.windows-distribution | human | 配布 | 初期機能にはnonblocking | 機能受理後に署名・installer要否を決める | exe起動受理後 | `windows-acceptance-checklist.md` |
 | 非協調writer競合・decision.windows-save-race | human | 外部アプリ併用時の公開受理 | 本アプリ多重起動にはnonblocking、同一出力への非協調同時書込運用にはblocking | 競合注入結果を見て運用禁止または追加補償を選ぶ | 外部アプリ併用運用を認める前 | `requirements-traceability.md`, `windows-acceptance-checklist.md` |
 | Windowsアプリケーションアイコン受理・decision.windows-application-icon-acceptance | human | 配布物の視覚受理 | local実装にはnonblocking、配布受理にはblocking | Explorer、タスクバー、主windowを16/32pxと各DPIで確認し、同一図案か、既定アイコンへ戻っていないかを記録 | Windows候補構築後・配布判断前 | `windows-acceptance-checklist.md` |
+| Windowsポインタ割当受理・decision.windows-pointer-acceptance | human | マウス入力割当追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | PTR-AT-011の四項目を実機で記録する | Windows候補構築後・配布判断前 | `mouse-input-bindings-addendum.md`, `requirements-traceability.md` |

@@ -1,7 +1,7 @@
-"""Version 1.5 application-operation registry and shortcut routing primitives.
+"""Application-operation registry and keyboard/pointer routing primitives.
 
 This module deliberately knows nothing about ``MainWindow`` or image state.  It
-defines the durable operation identities, validates the two shortcut slots, and
+defines the durable operation identities, validates the two binding slots, and
 offers a small runtime registry which an integration layer can bind to callbacks.
 """
 
@@ -17,7 +17,7 @@ from PySide6.QtGui import QAction, QKeyEvent, QKeySequence
 
 
 class OperationType(StrEnum):
-    """Keyboard execution semantics fixed by specification 15.6/15.7."""
+    """Execution semantics fixed by specification 15.6/15.7."""
 
     SINGLE = "single"
     STEP = "step"
@@ -56,14 +56,14 @@ class OperationSpec:
 
 @dataclass(frozen=True, slots=True)
 class ShortcutBindings:
-    """At most two distinct one-chord PortableText shortcuts."""
+    """At most two distinct keyboard or canvas-pointer bindings."""
 
     primary: str | None = None
     secondary: str | None = None
 
     def __post_init__(self) -> None:
-        primary = canonical_shortcut(self.primary)
-        secondary = canonical_shortcut(self.secondary)
+        primary = canonical_binding(self.primary)
+        secondary = canonical_binding(self.secondary)
         if primary is not None and primary == secondary:
             raise ValueError("primary and secondary shortcuts must differ")
         object.__setattr__(self, "primary", primary)
@@ -146,6 +146,70 @@ def canonical_shortcut(value: str | QKeySequence | None) -> str | None:
     return portable
 
 
+_POINTER_BASES = frozenset(
+    {
+        "WheelUp",
+        "WheelDown",
+        "MouseLeft",
+        "MouseMiddle",
+        "MouseRight",
+        "MouseBack",
+        "MouseForward",
+    }
+)
+_POINTER_MODIFIER_ORDER = ("Ctrl", "Alt", "Shift")
+_POINTER_MODIFIERS = frozenset(_POINTER_MODIFIER_ORDER)
+
+
+def _canonical_pointer_text(value: str) -> str | None:
+    parts = tuple(part.strip() for part in value.split("+"))
+    if not parts or parts[-1] not in _POINTER_BASES:
+        if any(part in _POINTER_BASES for part in parts):
+            raise ValueError("pointer base must be the final binding token")
+        return None
+    if any(not part for part in parts):
+        raise ValueError("pointer binding contains an empty token")
+    modifiers = parts[:-1]
+    if len(modifiers) != len(set(modifiers)):
+        raise ValueError("pointer binding contains a duplicate modifier")
+    unsupported = tuple(modifier for modifier in modifiers if modifier not in _POINTER_MODIFIERS)
+    if unsupported:
+        raise ValueError("pointer bindings support only Ctrl, Alt, and Shift modifiers")
+    ordered = tuple(modifier for modifier in _POINTER_MODIFIER_ORDER if modifier in modifiers)
+    return "+".join((*ordered, parts[-1]))
+
+
+def canonical_binding(value: str | QKeySequence | None) -> str | None:
+    """Return one canonical keyboard chord or canvas-pointer token."""
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        pointer = _canonical_pointer_text(text)
+        if pointer is not None:
+            return pointer
+    return canonical_shortcut(value)
+
+
+def pointer_base(value: str | QKeySequence | None) -> str | None:
+    """Return the formal pointer base token, or ``None`` for a keyboard binding."""
+
+    normalized = canonical_binding(value)
+    if normalized is None:
+        return None
+    base = normalized.rsplit("+", 1)[-1]
+    return base if base in _POINTER_BASES else None
+
+
+def binding_is_pointer(value: str | QKeySequence | None) -> bool:
+    return pointer_base(value) is not None
+
+
+def binding_is_wheel(value: str | QKeySequence | None) -> bool:
+    return pointer_base(value) in {"WheelUp", "WheelDown"}
+
+
 def native_shortcut(value: str | QKeySequence | None) -> str:
     normalized = canonical_shortcut(value)
     if normalized is None:
@@ -153,6 +217,79 @@ def native_shortcut(value: str | QKeySequence | None) -> str:
     return QKeySequence.fromString(normalized, QKeySequence.SequenceFormat.PortableText).toString(
         QKeySequence.SequenceFormat.NativeText
     )
+
+
+def native_binding(value: str | QKeySequence | None) -> str:
+    """Return native keyboard text or the stable formal pointer token."""
+
+    normalized = canonical_binding(value)
+    if normalized is None:
+        return ""
+    if binding_is_pointer(normalized):
+        return normalized
+    return native_shortcut(normalized)
+
+
+def _modifier_prefix(modifiers: Qt.KeyboardModifier) -> tuple[str, ...]:
+    try:
+        flags = Qt.KeyboardModifier(modifiers)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid pointer modifiers") from exc
+    allowed = (
+        Qt.KeyboardModifier.ControlModifier
+        | Qt.KeyboardModifier.AltModifier
+        | Qt.KeyboardModifier.ShiftModifier
+    )
+    if flags.value & ~allowed.value:
+        raise ValueError("pointer bindings support only Ctrl, Alt, and Shift modifiers")
+    names: list[str] = []
+    for name, flag in (
+        ("Ctrl", Qt.KeyboardModifier.ControlModifier),
+        ("Alt", Qt.KeyboardModifier.AltModifier),
+        ("Shift", Qt.KeyboardModifier.ShiftModifier),
+    ):
+        if flags & flag:
+            names.append(name)
+    return tuple(names)
+
+
+_MOUSE_BUTTON_BASES = {
+    Qt.MouseButton.LeftButton: "MouseLeft",
+    Qt.MouseButton.MiddleButton: "MouseMiddle",
+    Qt.MouseButton.RightButton: "MouseRight",
+    Qt.MouseButton.BackButton: "MouseBack",
+    Qt.MouseButton.ForwardButton: "MouseForward",
+}
+
+
+def mouse_button_binding(
+    button: Qt.MouseButton,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> str | None:
+    """Map one supported Qt mouse button and modifier state to a formal token."""
+
+    prefix = _modifier_prefix(modifiers)
+    try:
+        normalized_button = Qt.MouseButton(button)
+    except (TypeError, ValueError):
+        return None
+    base = _MOUSE_BUTTON_BASES.get(normalized_button)
+    if base is None:
+        return None
+    return "+".join((*prefix, base))
+
+
+def wheel_binding(
+    delta_y: int,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> str | None:
+    """Map the sign of a vertical Qt angle delta to a formal wheel token."""
+
+    prefix = _modifier_prefix(modifiers)
+    if delta_y == 0:
+        return None
+    base = "WheelUp" if delta_y > 0 else "WheelDown"
+    return "+".join((*prefix, base))
 
 
 _MODIFIER_KEYS = {
@@ -173,14 +310,16 @@ _RESERVED_PORTABLE = {
 
 
 def shortcut_is_reserved(value: str | QKeySequence | None) -> bool:
-    """Return whether a chord is unavailable for application assignment."""
+    """Return whether a keyboard chord or pointer token is unavailable."""
 
     try:
-        portable = canonical_shortcut(value)
+        portable = canonical_binding(value)
     except (TypeError, ValueError):
         return True
     if portable is None or portable in _MODIFIER_KEYS or portable in _RESERVED_PORTABLE:
         return True
+    if binding_is_pointer(portable):
+        return False
     parts = portable.split("+")
     return "Meta" in parts[:-1]
 
@@ -216,10 +355,12 @@ _STANDARD_TEXT_SHORTCUTS = {
 
 
 def shortcut_is_text_sensitive(value: str | QKeySequence | None) -> bool:
-    """Whether an editable text/number widget should receive the chord itself."""
+    """Whether an editable text/number widget should receive the binding itself."""
 
-    portable = canonical_shortcut(value)
+    portable = canonical_binding(value)
     if portable is None:
+        return False
+    if binding_is_pointer(portable):
         return False
     if portable in _STANDARD_TEXT_SHORTCUTS:
         return True
@@ -396,6 +537,17 @@ def default_shortcuts() -> dict[str, ShortcutBindings]:
     }
 
 
+def _validate_operation_binding(spec: OperationSpec, value: str | None) -> None:
+    if value is None:
+        return
+    if spec.operation_type is OperationType.HOLD and binding_is_wheel(value):
+        raise ValueError(
+            f"wheel binding {value} cannot be assigned to HOLD operation {spec.operation_id}"
+        )
+    if spec.operation_id == "view.temporary-pan" and pointer_base(value) == "MouseLeft":
+        raise ValueError("view.temporary-pan cannot use a MouseLeft binding")
+
+
 class ShortcutAssignments:
     """Mutable, copyable work set with deterministic conflict handling."""
 
@@ -430,13 +582,13 @@ class ShortcutAssignments:
         return self._bindings[operation_id]
 
     def owner_of(self, sequence: str | QKeySequence | None) -> AssignmentTarget | None:
-        portable = canonical_shortcut(sequence)
-        if portable is None:
+        binding = canonical_binding(sequence)
+        if binding is None:
             return None
         for operation_id, bindings in self._bindings.items():
-            if bindings.primary == portable:
+            if bindings.primary == binding:
                 return AssignmentTarget(operation_id, ShortcutSlot.PRIMARY)
-            if bindings.secondary == portable:
+            if bindings.secondary == binding:
                 return AssignmentTarget(operation_id, ShortcutSlot.SECONDARY)
         return None
 
@@ -448,16 +600,17 @@ class ShortcutAssignments:
         *,
         move_conflict: bool = False,
     ) -> AssignmentChange:
-        self._require_operation(operation_id)
+        spec = self._require_operation(operation_id)
         normalized_slot = ShortcutSlot(slot)
-        portable = canonical_shortcut(sequence)
+        binding = canonical_binding(sequence)
+        _validate_operation_binding(spec, binding)
         target = AssignmentTarget(operation_id, normalized_slot)
         current = self._bindings[operation_id]
-        if current.value(normalized_slot) == portable:
+        if current.value(normalized_slot) == binding:
             return AssignmentChange(AssignmentStatus.UNCHANGED)
-        owner = self.owner_of(portable)
+        owner = self.owner_of(binding)
         if owner is not None and owner != target:
-            conflict = ShortcutConflict(portable or "", owner, target)
+            conflict = ShortcutConflict(binding or "", owner, target)
             if owner.operation_id == operation_id:
                 return AssignmentChange(AssignmentStatus.DUPLICATE_SELF, conflict)
             if not move_conflict:
@@ -465,7 +618,7 @@ class ShortcutAssignments:
             self._bindings[owner.operation_id] = self._bindings[owner.operation_id].replaced(
                 owner.slot, None
             )
-        self._bindings[operation_id] = current.replaced(normalized_slot, portable)
+        self._bindings[operation_id] = current.replaced(normalized_slot, binding)
         return AssignmentChange(AssignmentStatus.APPLIED)
 
     def clear(self, operation_id: str, slot: ShortcutSlot | str) -> AssignmentChange:
@@ -499,12 +652,14 @@ class ShortcutAssignments:
     def _validate_unique(self) -> None:
         seen: dict[str, AssignmentTarget] = {}
         for operation_id, bindings in self._bindings.items():
+            spec = self._by_id[operation_id]
             for slot, value in (
                 (ShortcutSlot.PRIMARY, bindings.primary),
                 (ShortcutSlot.SECONDARY, bindings.secondary),
             ):
                 if value is None:
                     continue
+                _validate_operation_binding(spec, value)
                 target = AssignmentTarget(operation_id, slot)
                 if value in seen:
                     raise ValueError(f"shortcut {value} is assigned more than once")
@@ -520,7 +675,7 @@ class _RegisteredCallbacks:
 
 
 class ActionRegistry(QObject):
-    """Runtime callbacks and deterministic KeyDown/KeyUp dispatch.
+    """Runtime callbacks and deterministic keyboard/pointer dispatch.
 
     The integration layer may use this router instead of Qt's shortcut map.  In
     that mode generated ``QAction`` objects are command surfaces only; menu,
@@ -620,8 +775,39 @@ class ActionRegistry(QObject):
             self._refresh_actions(operation_id)
 
     def operation_for_shortcut(self, sequence: str | QKeySequence | None) -> str | None:
-        owner = self.assignments.owner_of(sequence)
+        shortcut = canonical_shortcut(sequence)
+        if shortcut is None:
+            return None
+        return self.operation_for_binding(shortcut)
+
+    def operation_for_binding(self, binding: str | QKeySequence | None) -> str | None:
+        owner = self.assignments.owner_of(binding)
         return None if owner is None else owner.operation_id
+
+    def dispatch_pointer_press(self, binding: str) -> bool:
+        normalized = canonical_binding(binding)
+        if normalized is None or not binding_is_pointer(normalized):
+            return False
+        operation_id = self.operation_for_binding(normalized)
+        if operation_id is None:
+            return False
+        spec = self.spec(operation_id)
+        if spec.operation_type is OperationType.HOLD:
+            self.press(operation_id, key_token=normalized)
+        else:
+            self.invoke(operation_id)
+        # Assignment ownership consumes the physical gesture even if the
+        # operation is currently disabled or has not been registered yet.
+        return True
+
+    def dispatch_pointer_release(self, binding: str) -> bool:
+        normalized = canonical_binding(binding)
+        if normalized is None or not binding_is_pointer(normalized):
+            return False
+        operation_id = self.operation_for_binding(normalized)
+        if operation_id is None or self.spec(operation_id).operation_type is not OperationType.HOLD:
+            return False
+        return self.release(operation_id, key_token=normalized)
 
     def dispatch_key_press(
         self,
@@ -729,6 +915,7 @@ class ActionRegistry(QObject):
             [
                 QKeySequence.fromString(value, QKeySequence.SequenceFormat.PortableText)
                 for value in bindings.sequences()
+                if not binding_is_pointer(value)
             ]
         )
 
@@ -746,9 +933,16 @@ __all__ = [
     "ShortcutBindings",
     "ShortcutConflict",
     "ShortcutSlot",
+    "binding_is_pointer",
+    "binding_is_wheel",
+    "canonical_binding",
     "canonical_shortcut",
     "default_shortcuts",
+    "mouse_button_binding",
+    "native_binding",
     "native_shortcut",
+    "pointer_base",
     "shortcut_is_reserved",
     "shortcut_is_text_sensitive",
+    "wheel_binding",
 ]

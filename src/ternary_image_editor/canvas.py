@@ -172,6 +172,12 @@ class ImageCanvas(QWidget):
         return self.labels is not None and self._label_image is not None
 
     @property
+    def temporary_pan_active(self) -> bool:
+        """Return whether a held key or GUI toggle currently requests left-drag pan."""
+
+        return self._space_pressed
+
+    @property
     def ternary_visible(self) -> bool:
         return self._ternary_visible
 
@@ -389,7 +395,7 @@ class ImageCanvas(QWidget):
         if self._view_change_is_blocked():
             event.accept()
             return
-        delta = event.angleDelta().y()
+        delta = event.angleDelta().y() or event.pixelDelta().y()
         if delta == 0:
             event.ignore()
             return

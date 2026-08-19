@@ -14,6 +14,9 @@ $SpecSource = Join-Path $ProjectRoot "docs/ternary_image_editor_spec_v1_5.html"
 $SpecDirectory = Join-Path $BundlePath "docs"
 $SpecPath = Join-Path $SpecDirectory "ternary_image_editor_spec_v1_5.html"
 $ExpectedSpecHash = "ED267BDE1634072F1E3249D0C7D0670CDEC1DBD08E3130380844CFF492C0C497"
+$AddendumSource = Join-Path $ProjectRoot "docs/mouse-input-bindings-addendum.md"
+$AddendumPath = Join-Path $SpecDirectory "mouse-input-bindings-addendum.md"
+$ExpectedAddendumHash = "91D7FEC202E9C211DE29FCECAB5BA3DD78BE539B814FB1A58737B38C40964EBA"
 $IconDirectory = Join-Path $ProjectRoot "src/ternary_image_editor/assets"
 $ExecutableIconSource = Join-Path $IconDirectory "app_icon.ico"
 $RuntimeIconSource = Join-Path $IconDirectory "app_icon.png"
@@ -31,6 +34,7 @@ foreach ($RequiredInput in @(
     $ExecutableIconSource,
     $RuntimeIconSource,
     $SpecSource,
+    $AddendumSource,
     $PackagingTestPath
 )) {
     if (-not (Test-Path -LiteralPath $RequiredInput -PathType Leaf)) {
@@ -113,6 +117,11 @@ $SpecHash = (Get-FileHash -LiteralPath $SpecPath -Algorithm SHA256).Hash
 if ($SpecHash -ne $ExpectedSpecHash) {
     throw "Bundled v1.5 specification hash mismatch: $SpecPath"
 }
+Copy-Item -LiteralPath $AddendumSource -Destination $AddendumPath -Force -ErrorAction Stop
+$AddendumHash = (Get-FileHash -LiteralPath $AddendumPath -Algorithm SHA256).Hash
+if ($AddendumHash -ne $ExpectedAddendumHash) {
+    throw "Bundled mouse-input addendum hash mismatch: $AddendumPath"
+}
 
 $ArtifactHash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash
 Write-Host "配布候補: $ArtifactPath"
@@ -122,3 +131,5 @@ Write-Host "アプリケーションアイコン: $BundledRuntimeIconPath"
 Write-Host "アプリケーションアイコンSHA-256: $RuntimeIconHash"
 Write-Host "要求正本: $SpecPath"
 Write-Host "要求正本SHA-256: $SpecHash"
+Write-Host "マウス入力割当追補: $AddendumPath"
+Write-Host "マウス入力割当追補SHA-256: $AddendumHash"
