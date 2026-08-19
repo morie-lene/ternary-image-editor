@@ -18,6 +18,7 @@ $IconDirectory = Join-Path $ProjectRoot "src/ternary_image_editor/assets"
 $ExecutableIconSource = Join-Path $IconDirectory "app_icon.ico"
 $RuntimeIconSource = Join-Path $IconDirectory "app_icon.png"
 $BundledRuntimeIconPath = Join-Path $BundlePath "_internal\ternary_image_editor\assets\app_icon.png"
+$TestDirectory = Join-Path $ProjectRoot "tests"
 
 function Assert-NativeSuccess([string]$Step) {
     if ($LASTEXITCODE -ne 0) {
@@ -33,8 +34,13 @@ foreach ($RequiredAsset in @($ExecutableIconSource, $RuntimeIconSource)) {
 
 uv sync --locked --python 3.11
 Assert-NativeSuccess "uv sync"
-uv run pytest
-Assert-NativeSuccess "pytest"
+if (Test-Path -LiteralPath $TestDirectory -PathType Container) {
+    uv run pytest
+    Assert-NativeSuccess "pytest"
+}
+else {
+    Write-Warning "tests/が公開取得物に含まれないためpytestを省略した。試験済みとは扱わないこと。"
+}
 uv run ruff check .
 Assert-NativeSuccess "ruff"
 
