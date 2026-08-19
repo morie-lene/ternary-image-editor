@@ -28,19 +28,23 @@ def test_public_pytest_configuration_collects_packaging_tests() -> None:
 
 def test_windows_build_requires_public_tests_and_checks_native_exit_codes() -> None:
     script = _build_script()
+    required_inputs = script[
+        script.index("foreach ($RequiredInput") : script.index("uv sync --locked")
+    ]
 
     assert 'Assert-NativeSuccess "uv sync"' in script
     assert 'Assert-NativeSuccess "pytest"' in script
     assert 'Assert-NativeSuccess "ruff"' in script
     assert 'Assert-NativeSuccess "PyInstaller"' in script
-    assert "$TestDirectory" in script
     assert '$PackagingTestPath = Join-Path $TestDirectory "test_packaging.py"' in script
-    assert "uv run pytest $PackagingTestPath" in script
+    assert "$PackagingTestPath" in required_inputs
+    assert "uv run pytest $TestDirectory" in script
     assert "Write-Warning" not in script
     assert script.index('Assert-NativeSuccess "uv sync"') > script.index("uv sync --locked")
     assert script.index('Assert-NativeSuccess "pytest"') > script.index(
-        "uv run pytest $PackagingTestPath"
+        "uv run pytest $TestDirectory"
     )
+    assert script.index('Assert-NativeSuccess "ruff"') > script.index("uv run ruff check .")
     assert script.index('Assert-NativeSuccess "PyInstaller"') > script.index("uv run pyinstaller")
 
 
@@ -92,9 +96,11 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
     required_source_paths = {
         "README.md",
         "packaging/windows_entry.py",
+        "pyproject.toml",
         "scripts/build_windows.ps1",
         "docs/ternary_image_editor_spec_v1_5.html",
         "tests/test_packaging.py",
+        "uv.lock",
     }
     for relative_path in required_source_paths:
         assert f"{source_root}/{relative_path}" in source_names
@@ -113,6 +119,7 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
         entry_points = wheel.read(entry_points_path).decode("utf-8")
 
     assert "ternary_image_editor/__init__.py" in wheel_names
+    assert "ternary_image_editor/app.py" in wheel_names
     assert "ternary_image_editor/assets/app_icon.ico" in wheel_names
     assert "ternary_image_editor/assets/app_icon.png" in wheel_names
     assert "ternary_image_editor/assets/app_icon.svg" in wheel_names

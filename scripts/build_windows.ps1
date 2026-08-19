@@ -40,7 +40,7 @@ foreach ($RequiredInput in @(
 
 uv sync --locked --python 3.11
 Assert-NativeSuccess "uv sync"
-uv run pytest $PackagingTestPath
+uv run pytest $TestDirectory
 Assert-NativeSuccess "pytest"
 uv run ruff check .
 Assert-NativeSuccess "ruff"
