@@ -1,14 +1,25 @@
-"""仕様書で固定された値。"""
+"""アプリケーション全体で共有する値と小さな規則。"""
 
 from __future__ import annotations
 
 from enum import IntEnum
 
-IMAGE_WIDTH = 2048
-IMAGE_HEIGHT = 1536
-IMAGE_SIZE = (IMAGE_WIDTH, IMAGE_HEIGHT)
-BOTTOM_PROTECTED_START_Y = 1436
-BOTTOM_PROTECTED_END_Y = 1536
+BOTTOM_PROTECTED_HEIGHT = 100
+
+
+def protected_start_y(image_height: int) -> int:
+    """画像高さに対する下端保護領域の開始行を返す。
+
+    高さ100以下の画像を全域編集不能にしないため、その場合は空の保護領域とする。
+    """
+
+    if isinstance(image_height, bool) or not isinstance(image_height, int):
+        raise TypeError("画像高さは整数でなければならない")
+    if image_height < 1:
+        raise ValueError("画像高さは正でなければならない")
+    if image_height <= BOTTOM_PROTECTED_HEIGHT:
+        return image_height
+    return image_height - BOTTOM_PROTECTED_HEIGHT
 
 
 class Label(IntEnum):
@@ -39,8 +50,11 @@ DEFAULT_PSEUDO_RGB: tuple[tuple[int, int, int], ...] = (
 ORIGINAL_PREFIX_GROUP = {"①": "001", "②": "002"}
 TERNARY_PREFIX_GROUP = {"001": "001", "002": "002"}
 ORIGINAL_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"})
-TERNARY_EXTENSIONS = frozenset({".png"})
+TERNARY_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg"})
+TERNARY_JPEG_EXTENSIONS = frozenset({".jpg", ".jpeg"})
 PAIR_SUFFIX_LENGTH = 27
+
+JPEG_QUANTIZATION_RULE = "srgb-nearest-black-gray-white-v1"
 
 MIN_ZOOM = 0.05
 MAX_ZOOM = 64.0

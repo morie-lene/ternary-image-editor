@@ -9,8 +9,6 @@ from .constants import (
     BRUSH_THRESHOLD_DEVICE_PX,
     FIT_MARGIN_LOGICAL_PX,
     GRID_THRESHOLD_DEVICE_PX,
-    IMAGE_HEIGHT,
-    IMAGE_WIDTH,
     MAX_ZOOM,
     MIN_ZOOM,
 )
@@ -41,8 +39,8 @@ class CanvasTransform:
     def __init__(
         self,
         *,
-        image_width: int = IMAGE_WIDTH,
-        image_height: int = IMAGE_HEIGHT,
+        image_width: int = 1,
+        image_height: int = 1,
         viewport_width: float = 640.0,
         viewport_height: float = 480.0,
         scale: float = 1.0,

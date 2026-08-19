@@ -17,12 +17,16 @@ $ExpectedSpecHash = "ED267BDE1634072F1E3249D0C7D0670CDEC1DBD08E3130380844CFF492C
 $AddendumSource = Join-Path $ProjectRoot "docs/mouse-input-bindings-addendum.md"
 $AddendumPath = Join-Path $SpecDirectory "mouse-input-bindings-addendum.md"
 $ExpectedAddendumHash = "91D7FEC202E9C211DE29FCECAB5BA3DD78BE539B814FB1A58737B38C40964EBA"
+$FlexibleInputAddendumSource = Join-Path $ProjectRoot "docs/flexible-input-pairing-addendum.md"
+$FlexibleInputAddendumPath = Join-Path $SpecDirectory "flexible-input-pairing-addendum.md"
+$ExpectedFlexibleInputAddendumHash = "9F21514F8ABDC473A56184514D6499985F893797C274C1B74CC79F6796034384"
 $IconDirectory = Join-Path $ProjectRoot "src/ternary_image_editor/assets"
 $ExecutableIconSource = Join-Path $IconDirectory "app_icon.ico"
 $RuntimeIconSource = Join-Path $IconDirectory "app_icon.png"
 $BundledRuntimeIconPath = Join-Path $BundlePath "_internal\ternary_image_editor\assets\app_icon.png"
 $TestDirectory = Join-Path $ProjectRoot "tests"
 $PackagingTestPath = Join-Path $TestDirectory "test_packaging.py"
+$FlexibleInputTestPath = Join-Path $TestDirectory "test_flexible_input_contract.py"
 
 function Assert-NativeSuccess([string]$Step) {
     if ($LASTEXITCODE -ne 0) {
@@ -35,7 +39,9 @@ foreach ($RequiredInput in @(
     $RuntimeIconSource,
     $SpecSource,
     $AddendumSource,
-    $PackagingTestPath
+    $FlexibleInputAddendumSource,
+    $PackagingTestPath,
+    $FlexibleInputTestPath
 )) {
     if (-not (Test-Path -LiteralPath $RequiredInput -PathType Leaf)) {
         throw "Required build input is missing: $RequiredInput"
@@ -122,6 +128,17 @@ $AddendumHash = (Get-FileHash -LiteralPath $AddendumPath -Algorithm SHA256).Hash
 if ($AddendumHash -ne $ExpectedAddendumHash) {
     throw "Bundled mouse-input addendum hash mismatch: $AddendumPath"
 }
+Copy-Item `
+    -LiteralPath $FlexibleInputAddendumSource `
+    -Destination $FlexibleInputAddendumPath `
+    -Force `
+    -ErrorAction Stop
+$FlexibleInputAddendumHash = (
+    Get-FileHash -LiteralPath $FlexibleInputAddendumPath -Algorithm SHA256
+).Hash
+if ($FlexibleInputAddendumHash -ne $ExpectedFlexibleInputAddendumHash) {
+    throw "Bundled flexible-input pairing addendum hash mismatch: $FlexibleInputAddendumPath"
+}
 
 $ArtifactHash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash
 Write-Host "配布候補: $ArtifactPath"
@@ -133,3 +150,5 @@ Write-Host "要求正本: $SpecPath"
 Write-Host "要求正本SHA-256: $SpecHash"
 Write-Host "マウス入力割当追補: $AddendumPath"
 Write-Host "マウス入力割当追補SHA-256: $AddendumHash"
+Write-Host "可変入力・組合せ追補: $FlexibleInputAddendumPath"
+Write-Host "可変入力・組合せ追補SHA-256: $FlexibleInputAddendumHash"

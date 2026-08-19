@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .constants import IMAGE_SIZE
+from .constants import TERNARY_JPEG_EXTENSIONS
 from .errors import (
     BusyError,
     ExternalOutputModificationError,
+    JpegImportConfirmationRequired,
     NoImageLoadedError,
+    PairDimensionError,
 )
 from .history import HistoryManager, HistoryTrimReport, PixelDelta, make_pixel_delta
 from .image_io import (
@@ -31,6 +34,7 @@ from .models import (
     FileRole,
     ImagePair,
     ProtectedNormalizationReport,
+    TernaryImportReport,
 )
 from .workers import TaskToken
 
@@ -64,6 +68,8 @@ class ImageSession:
         self._ternary_fingerprint: FileFingerprint | None = None
         self._output_fingerprint: FileFingerprint | None = None
         self._normalization = ProtectedNormalizationReport()
+        self._import_report = TernaryImportReport()
+        self._import_requires_save = False
         self._baseline_is_output = False
         self._history = HistoryManager()
         self._session_id: str | None = None
@@ -111,6 +117,14 @@ class ImageSession:
         return self._normalization
 
     @property
+    def import_report(self) -> TernaryImportReport:
+        return self._import_report
+
+    @property
+    def import_requires_save(self) -> bool:
+        return self._import_requires_save
+
+    @property
     def history(self) -> HistoryManager:
         return self._history
 
@@ -134,6 +148,8 @@ class ImageSession:
     def is_dirty(self) -> bool:
         if not self.is_loaded or self._baseline_labels is None:
             return False
+        if self._import_requires_save:
+            return True
         labels = self._require_labels()
         baseline = self._baseline_labels
         if (
@@ -182,16 +198,38 @@ class ImageSession:
         pair: ImagePair,
         source: EditSource | str,
         *,
-        expected_size: tuple[int, int] = IMAGE_SIZE,
+        expected_size: tuple[int, int] | None = None,
+        allow_jpeg_import: bool = False,
     ) -> None:
         """画像対を取引的に読み、成功後だけ新しいセッションへ切り替える。"""
 
         self._ensure_transition_allowed()
         edit_source = EditSource(source)
+        ternary_path = Path(pair.ternary_path)
+        if (
+            ternary_path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS
+            and not allow_jpeg_import
+        ):
+            raise JpegImportConfirmationRequired(ternary_path)
         loaded_original = load_original_image(pair.original_path, expected_size=expected_size)
         loaded_input = load_ternary_image(pair.ternary_path, expected_size=expected_size)
+        original_size = (
+            int(loaded_original.rgb.shape[1]),
+            int(loaded_original.rgb.shape[0]),
+        )
+        input_size = (
+            int(loaded_input.labels.shape[1]),
+            int(loaded_input.labels.shape[0]),
+        )
+        if original_size != input_size:
+            raise PairDimensionError(
+                original_path=pair.original_path,
+                original_size=original_size,
+                ternary_path=pair.ternary_path,
+                ternary_size=input_size,
+            )
         if edit_source == EditSource.OUTPUT:
-            loaded_labels = load_output_image(pair.output_path, expected_size=expected_size)
+            loaded_labels = load_output_image(pair.output_path, expected_size=original_size)
         else:
             loaded_labels = loaded_input
         try:
@@ -219,7 +257,7 @@ class ImageSession:
 
         labels = _owned_labels(
             loaded_labels.labels,
-            expected_shape=(expected_size[1], expected_size[0]),
+            expected_shape=(original_size[1], original_size[0]),
         )
         source_baseline = (
             loaded_labels.labels
@@ -229,17 +267,19 @@ class ImageSession:
         baseline_labels = _immutable_labels_copy(
             _owned_labels(
                 source_baseline,
-                expected_shape=(expected_size[1], expected_size[0]),
+                expected_shape=(original_size[1], original_size[0]),
             )
         )
         original_rgb = _owned_original_rgb(
             loaded_original.rgb,
-            expected_shape=(expected_size[1], expected_size[0], 3),
+            expected_shape=(original_size[1], original_size[0], 3),
         )
         committed_labels = _immutable_labels_copy(labels)
         new_session_id = uuid4().hex
 
-        self._history.reset(clean=np.array_equal(labels, baseline_labels))
+        self._history.reset(
+            clean=np.array_equal(labels, baseline_labels) and not loaded_labels.requires_save
+        )
         self._pair = pair
         self._original_rgb = original_rgb
         self._labels = labels
@@ -250,6 +290,8 @@ class ImageSession:
         self._ternary_fingerprint = loaded_input.fingerprint
         self._output_fingerprint = current_output_fingerprint
         self._normalization = loaded_labels.normalization
+        self._import_report = loaded_labels.import_report
+        self._import_requires_save = loaded_labels.requires_save
         self._baseline_is_output = edit_source == EditSource.OUTPUT
         self._session_id = new_session_id
         self._revision = 0
@@ -271,6 +313,8 @@ class ImageSession:
         self._ternary_fingerprint = None
         self._output_fingerprint = None
         self._normalization = ProtectedNormalizationReport()
+        self._import_report = TernaryImportReport()
+        self._import_requires_save = False
         self._baseline_is_output = False
         self._history.reset(clean=True)
         self._session_id = None
@@ -421,7 +465,7 @@ class ImageSession:
         force: bool = False,
         allow_existing_output: bool = False,
         allow_stale_sources: bool = False,
-        expected_size: tuple[int, int] = IMAGE_SIZE,
+        expected_size: tuple[int, int] | None = None,
     ) -> FileFingerprint:
         """現在配列を保存し、成功時だけ保存点と出力指紋を更新する。
 
@@ -435,6 +479,11 @@ class ImageSession:
         if self._activity not in {Activity.IDLE, Activity.COMPONENTS}:
             raise BusyError("別の処理が進行中")
         labels = self._require_labels()
+        current_size = (int(labels.shape[1]), int(labels.shape[0]))
+        if expected_size is not None and expected_size != current_size:
+            raise ValueError(
+                f"保存指定寸法が現在画像と一致しない: {expected_size} != {current_size}"
+            )
         assert self._pair is not None
         self._activity = Activity.SAVING
         self._active_task_token = None
@@ -467,7 +516,7 @@ class ImageSession:
                     ),
                 ),
                 allow_stale_sources=allow_stale_sources,
-                expected_size=expected_size,
+                expected_size=current_size,
             )
             saved_labels, _changed_pixels = normalized_protected_labels_copy(labels)
             self._history.mark_saved()
@@ -476,6 +525,7 @@ class ImageSession:
             self._baseline_labels = _immutable_labels_copy(saved_labels)
             self._baseline_is_output = True
             self._normalization = ProtectedNormalizationReport()
+            self._import_requires_save = False
             self._output_fingerprint = fingerprint
             return fingerprint
         finally:

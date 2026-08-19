@@ -17,13 +17,19 @@ class PairKey:
     suffix: str
 
 
+class PairingMode(StrEnum):
+    STRICT_KEY = "strict_key"
+    NATURAL_ORDER = "natural_order"
+
+
 @dataclass(frozen=True, slots=True)
 class ImagePair:
-    key: PairKey
+    key: PairKey | None
     original_path: Path
     ternary_path: Path
     output_path: Path
     ternary_stem: str
+    pairing_mode: PairingMode = PairingMode.STRICT_KEY
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +46,26 @@ class PairingResult:
     excluded: list[ExcludedItem] = field(default_factory=list)
     output_writable: bool = True
     output_warning: str | None = None
+    output_checked: bool = False
+    pairing_mode: PairingMode = PairingMode.STRICT_KEY
+    original_candidate_count: int = 0
+    ternary_candidate_count: int = 0
+    blocking_reason: str | None = None
+
+    @property
+    def counts_match(self) -> bool:
+        return (
+            self.original_candidate_count > 0
+            and self.original_candidate_count == self.ternary_candidate_count
+        )
+
+    @property
+    def confirmation_required(self) -> bool:
+        return (
+            self.pairing_mode is PairingMode.NATURAL_ORDER
+            and bool(self.pairs)
+            and self.blocking_reason is None
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +97,18 @@ class ProtectedNormalizationReport:
         return self.changed_pixels > 0
 
 
+@dataclass(frozen=True, slots=True)
+class TernaryImportReport:
+    source_format: str = "PNG"
+    quantized: bool = False
+    quantization_rule: str | None = None
+    label_counts: tuple[int, int, int] = (0, 0, 0)
+
+    @property
+    def total_pixels(self) -> int:
+        return sum(self.label_counts)
+
+
 class EditSource(StrEnum):
     INPUT = "input"
     OUTPUT = "output"
@@ -100,3 +138,5 @@ class LoadedLabels:
     normalization: ProtectedNormalizationReport = field(
         default_factory=ProtectedNormalizationReport
     )
+    import_report: TernaryImportReport = field(default_factory=TernaryImportReport)
+    requires_save: bool = False

@@ -37,7 +37,13 @@ from .action_registry import (
     wheel_binding,
 )
 from .canvas import BrushShape, EditTool, ImageCanvas
-from .constants import BOTTOM_PROTECTED_START_Y, IMAGE_SIZE, LABEL_NAMES, SAVE_RGB, Label
+from .constants import (
+    LABEL_NAMES,
+    SAVE_RGB,
+    TERNARY_JPEG_EXTENSIONS,
+    Label,
+    protected_start_y,
+)
 from .control_panel import EditorControls
 from .dialogs import (
     ExistingOutputChoice,
@@ -49,7 +55,9 @@ from .dialogs import (
     ask_external_change,
     ask_input_change,
     ask_unsaved,
+    confirm_natural_pairing,
     confirm_overwrite,
+    confirm_ternary_jpeg_import,
     show_error,
     show_information,
 )
@@ -60,7 +68,7 @@ from .errors import (
     ImageValidationError,
 )
 from .history import HistoryTrimReport
-from .models import EditSource, ImagePair, PairingResult
+from .models import EditSource, ImagePair, PairingMode, PairingResult
 from .operations import (
     SmallComponentsResult,
     find_small_components,
@@ -69,7 +77,7 @@ from .operations import (
     generate_boundary_none_side,
     paint_brush_increment,
 )
-from .pairing import pair_directories
+from .pairing import finalize_pairing, plan_pairing
 from .session import Activity, ImageSession
 from .settings_model import AppSettings, SettingsRepository, hex_from_rgb, rgb_from_hex
 from .workers import FunctionWorker, TaskFailure, TaskSuccess, TaskToken
@@ -83,6 +91,15 @@ class _ActiveJob:
     on_failure: Callable[[Exception], None]
 
 
+@dataclass(slots=True)
+class _PreparedPairingOpen:
+    index: int
+    source: EditSource
+    session: ImageSession
+    pair_errors: dict[int, str]
+    output_errors: dict[int, str]
+
+
 class MainWindow(QMainWindow):
     """一画像だけを所有し、遷移と長処理を取引境界で直列化する。"""
 
@@ -91,7 +108,7 @@ class MainWindow(QMainWindow):
         parent: QWidget | None = None,
         *,
         settings: QSettings | None = None,
-        expected_size: tuple[int, int] = IMAGE_SIZE,
+        expected_size: tuple[int, int] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("三値画像修正")
@@ -114,6 +131,7 @@ class MainWindow(QMainWindow):
         self._pairs: list[ImagePair] = []
         self._pairing_result = PairingResult()
         self._folders: tuple[Path, Path, Path] | None = None
+        self._pairing_mode = self._stored_pairing_mode()
         self._current_index: int | None = None
         self._pair_errors: dict[int, str] = {}
         self._output_errors: dict[int, str] = {}
@@ -295,11 +313,20 @@ class MainWindow(QMainWindow):
         original_dir: Path,
         ternary_dir: Path,
         output_dir: Path,
+        *,
+        pairing_mode: PairingMode | str = PairingMode.STRICT_KEY,
+        natural_order_confirmed: bool = False,
     ) -> PairingResult:
         """検査済み画像一覧を導入する。競合中は ``BusyError`` を送出する。"""
 
         self._ensure_direct_transition_allowed()
-        result = pair_directories(original_dir, ternary_dir, output_dir)
+        mode = PairingMode(pairing_mode)
+        result = plan_pairing(original_dir, ternary_dir, output_dir, mode=mode)
+        if result.confirmation_required and not natural_order_confirmed:
+            raise ValueError("自然順対応は全対応表の明示確認が必要")
+        if result.blocking_reason is not None or not result.pairs:
+            return result
+        finalize_pairing(result, output_dir)
         self._install_pairing(result, (original_dir, ternary_dir, output_dir))
         return result
 
@@ -333,13 +360,18 @@ class MainWindow(QMainWindow):
             self._message("筆を放して操作を確定してから画像を移動せよ")
             self._sync_list_selection()
             return
-        source = self._choose_edit_source(self._pairs[index])
+        pair = self._pairs[index]
+        source = self._choose_edit_source(pair)
         if source is None:
+            self._sync_list_selection()
+            return
+        jpeg_confirmed = self._preconfirm_ternary_jpeg(pair)
+        if jpeg_confirmed is None:
             self._sync_list_selection()
             return
         self._with_unsaved_resolution(
             "画像移動",
-            lambda: self._open_pair(index, source),
+            lambda: self._open_pair(index, source, jpeg_confirmed=jpeg_confirmed),
         )
 
     def request_save(self, *, continuation: Callable[[], None] | None = None) -> None:
@@ -772,29 +804,77 @@ class MainWindow(QMainWindow):
             original=defaults[0],
             ternary=defaults[1],
             output=defaults[2],
+            pairing_mode=self._pairing_mode,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         folders = dialog.folders
         try:
-            result = pair_directories(*folders)
+            result = self._prepare_pairing(folders, dialog.pairing_mode)
         except Exception as exc:  # noqa: BLE001 - フォルダ取引境界
             show_error(self, "フォルダを利用できない", str(exc))
             return
+        if result is None:
+            return
+        if result.blocking_reason is not None:
+            show_error(
+                self,
+                "画像群を読み込めない",
+                self._pairing_failure_message(result),
+            )
+            return
+        if not result.pairs:
+            show_error(
+                self,
+                "有効な画像対がない",
+                self._pairing_failure_message(result),
+            )
+            return
 
-        first_source: EditSource | None = None
-        if result.pairs:
-            first_source = self._choose_edit_source(result.pairs[0])
-            if first_source is None:
-                return
+        prepared = self._preflight_first_usable_pair(result)
+        if prepared is None:
+            return
 
         def install() -> None:
-            self._install_pairing(result, folders)
-            if result.pairs and first_source is not None:
-                if not self._open_pair(0, first_source) and 0 in self._pair_errors:
-                    self._open_first_usable_pair(start=1)
+            self._commit_prepared_pairing(result, folders, prepared)
 
         self._with_unsaved_resolution("フォルダ再読込", install)
+
+    def _prepare_pairing(
+        self,
+        folders: tuple[Path, Path, Path],
+        mode: PairingMode | str,
+    ) -> PairingResult | None:
+        """出力先へ作用を残さず走査し、自然順なら全対応の確認まで済ませる。"""
+
+        result = plan_pairing(*folders, mode=mode)
+        if result.confirmation_required and not confirm_natural_pairing(self, result):
+            self._message("自然順の対応確認を中止した。現在の画像集合は変更していない")
+            return None
+        return result
+
+    @staticmethod
+    def _pairing_failure_message(result: PairingResult) -> str:
+        """導入しない走査結果を、現在一覧を壊さず読める診断へ整形する。"""
+
+        lines = [
+            result.blocking_reason or "画像群を対応付けられない",
+            (
+                "対応形式画像: "
+                f"原画像={result.original_candidate_count}件、"
+                f"三値画像={result.ternary_candidate_count}件"
+            ),
+        ]
+        diagnostics: list[str] = []
+        gate_codes = {"empty_candidate_group", "candidate_count_mismatch"}
+        for excluded in result.excluded:
+            if excluded.reason_code in gate_codes:
+                continue
+            paths = ", ".join(str(path) for path in excluded.paths) or "(pathなし)"
+            diagnostics.append(f"- {excluded.message}: {paths}")
+        if diagnostics:
+            lines.extend(("対象外・衝突の内訳:", *diagnostics))
+        return "\n".join(lines)
 
     def _open_settings(self) -> None:
         from .settings_dialog import SettingsDialog
@@ -873,14 +953,30 @@ class MainWindow(QMainWindow):
             return
         folders = tuple(Path(value) for value in stored)
         try:
-            result = pair_directories(*folders)
+            result = self._prepare_pairing(folders, self._stored_pairing_mode())
         except Exception as exc:  # noqa: BLE001 - 起動時は非モーダル通知で継続
             self._message(f"保存済みフォルダの自動再走査に失敗した: {exc}")
             return
-        self._install_pairing(result, folders)
-        if not result.pairs:
+        if result is None:
             return
-        self._open_first_usable_pair()
+        if result.blocking_reason is not None:
+            show_error(
+                self,
+                "保存済み画像群を読み込めない",
+                self._pairing_failure_message(result),
+            )
+            return
+        if not result.pairs:
+            show_error(
+                self,
+                "保存済みフォルダに有効な画像対がない",
+                self._pairing_failure_message(result),
+            )
+            return
+        prepared = self._preflight_first_usable_pair(result)
+        if prepared is None:
+            return
+        self._commit_prepared_pairing(result, folders, prepared)
 
     def _rescan_folders(self) -> None:
         folders = self._folders
@@ -891,22 +987,102 @@ class MainWindow(QMainWindow):
                 return
             folders = tuple(Path(value) for value in stored)
 
-        def rescan() -> None:
-            assert folders is not None
-            try:
-                result = pair_directories(*folders)
-            except Exception as exc:  # noqa: BLE001 - フォルダ取引境界
-                show_error(self, "再走査に失敗", str(exc))
-                return
-            source = self._choose_edit_source(result.pairs[0]) if result.pairs else None
-            if result.pairs and source is None:
-                return
-            self._install_pairing(result, folders)
-            if result.pairs and source is not None:
-                if not self._open_pair(0, source) and 0 in self._pair_errors:
-                    self._open_first_usable_pair(start=1)
+        assert folders is not None
+        try:
+            result = self._prepare_pairing(folders, self._pairing_mode)
+        except Exception as exc:  # noqa: BLE001 - フォルダ取引境界
+            show_error(self, "再走査に失敗", str(exc))
+            return
+        if result is None:
+            return
+        if result.blocking_reason is not None:
+            show_error(
+                self,
+                "画像群を再走査できない",
+                self._pairing_failure_message(result),
+            )
+            return
+        if not result.pairs:
+            show_error(
+                self,
+                "再走査で有効な画像対がない",
+                self._pairing_failure_message(result),
+            )
+            return
+        prepared = self._preflight_first_usable_pair(result)
+        if prepared is None:
+            return
 
-        self._with_unsaved_resolution("フォルダ再走査", rescan)
+        def install_rescan() -> None:
+            self._commit_prepared_pairing(result, folders, prepared)
+
+        self._with_unsaved_resolution("フォルダ再走査", install_rescan)
+
+    def _preflight_first_usable_pair(
+        self,
+        result: PairingResult,
+    ) -> _PreparedPairingOpen | None:
+        """現状態と出力先を変えず、最初に開ける対を別sessionへ用意する。"""
+
+        pair_errors: dict[int, str] = {}
+        output_errors: dict[int, str] = {}
+        for index, pair in enumerate(result.pairs):
+            source = self._choose_edit_source(pair)
+            if source is None:
+                return None
+            jpeg_confirmed = self._preconfirm_ternary_jpeg(pair)
+            if jpeg_confirmed is None:
+                return None
+            prepared_session = ImageSession()
+            while True:
+                try:
+                    prepared_session.open_pair(
+                        pair,
+                        source,
+                        expected_size=self.expected_size,
+                        allow_jpeg_import=jpeg_confirmed,
+                    )
+                except ImageValidationError as exc:
+                    if source == EditSource.OUTPUT and exc.path == pair.output_path:
+                        output_errors[index] = str(exc)
+                        if self._ask_input_fallback(exc):
+                            source = EditSource.INPUT
+                            continue
+                        show_error(self, "編集済み画像を利用できない", str(exc))
+                        return None
+                    pair_errors[index] = str(exc)
+                    show_error(self, "画像を利用できない", str(exc))
+                    break
+                except Exception as exc:  # noqa: BLE001 - 読込preflight取引境界
+                    pair_errors[index] = str(exc)
+                    show_error(self, "画像を開けない", str(exc))
+                    break
+                return _PreparedPairingOpen(
+                    index=index,
+                    source=source,
+                    session=prepared_session,
+                    pair_errors=pair_errors,
+                    output_errors=output_errors,
+                )
+        self._message("開ける画像対がない。現在の画像集合は変更していない")
+        return None
+
+    def _commit_prepared_pairing(
+        self,
+        result: PairingResult,
+        folders: tuple[Path, Path, Path],
+        prepared: _PreparedPairingOpen | None,
+    ) -> None:
+        """確認済み計画と読込済みsessionを一括して現在状態へ導入する。"""
+
+        finalize_pairing(result, folders[2])
+        self._install_pairing(result, folders)
+        if prepared is None:
+            return
+        self._pair_errors.update(prepared.pair_errors)
+        self._output_errors.update(prepared.output_errors)
+        self.session = prepared.session
+        self._finish_open_pair(prepared.index, prepared.source, had_image=False)
 
     def _install_pairing(
         self,
@@ -918,23 +1094,31 @@ class MainWindow(QMainWindow):
         self.canvas.clear_images()
         self._current_index = None
         self._pairing_result = result
+        self._pairing_mode = result.pairing_mode
         self._pairs = list(result.pairs)
         self._pair_errors.clear()
         self._output_errors.clear()
         self._folders = tuple(Path(folder) for folder in folders)
-        self._write_folders(self._folders)
+        self._write_folders(self._folders, self._pairing_mode)
         self._rebuild_image_list()
         self.controls.set_component_count(None)
-        if not result.output_writable:
+        if result.output_checked and not result.output_writable:
             QMessageBox.warning(
                 self,
                 "出力先へ書き込めない",
                 result.output_warning or "出力フォルダの書込検査に失敗した。保存を無効化する。",
             )
-        if not result.pairs:
+        if result.blocking_reason is not None:
+            self._message(result.blocking_reason)
+        elif not result.pairs:
             self._message("有効な画像対がない。対象外理由を一覧で確認せよ。")
         else:
-            self._message(f"{len(result.pairs)}組を対応付けた")
+            mode_text = (
+                "自然順（確認済み）"
+                if result.pairing_mode is PairingMode.NATURAL_ORDER
+                else "仕様キー"
+            )
+            self._message(f"{len(result.pairs)}組を対応付けた｜{mode_text}")
         self._update_interface()
 
     def _rebuild_image_list(self) -> None:
@@ -974,7 +1158,14 @@ class MainWindow(QMainWindow):
             suffix += f"｜{self._output_errors[index]}"
         current = "▶ " if index == self._current_index else "  "
         visible_position = sum(candidate not in self._pair_errors for candidate in range(index + 1))
-        return f"{current}{visible_position:04d}｜{pair.ternary_stem}｜{output}{suffix}"
+        jpeg = (
+            "｜JPEG→PNG"
+            if pair.ternary_path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS
+            else ""
+        )
+        return (
+            f"{current}{visible_position:04d}｜{pair.ternary_stem}{jpeg}｜{output}{suffix}"
+        )
 
     def _refresh_pair_items(self) -> None:
         self._rebuild_image_list()
@@ -995,35 +1186,51 @@ class MainWindow(QMainWindow):
             return EditSource.INPUT
         return None
 
-    def _open_first_usable_pair(self, *, start: int = 0) -> bool:
-        """遅延画像検査で不正対を除外しつつ、最初の利用可能対を開く。"""
+    def _preconfirm_ternary_jpeg(self, pair: ImagePair) -> bool | None:
+        """JPEGなら確認結果、PNGならFalse、取消ならNoneを返す。"""
 
-        for index in range(max(start, 0), len(self._pairs)):
-            if index in self._pair_errors:
-                continue
-            source = self._choose_edit_source(self._pairs[index])
-            if source is None:
-                return False
-            if self._open_pair(index, source):
-                return True
-            if index not in self._pair_errors:
-                return False
-        self._message("開ける画像対がない。読込エラー一覧を確認せよ。")
-        return False
+        if pair.ternary_path.suffix.casefold() not in TERNARY_JPEG_EXTENSIONS:
+            return False
+        if confirm_ternary_jpeg_import(self, pair.ternary_path):
+            return True
+        self._message("JPEG三値画像の取込を中止した。現在の画像は変更していない")
+        return None
 
-    def _open_pair(self, index: int, source: EditSource) -> bool:
+    def _open_pair(
+        self,
+        index: int,
+        source: EditSource,
+        *,
+        jpeg_confirmed: bool = False,
+    ) -> bool:
         if not 0 <= index < len(self._pairs):
             return False
         pair = self._pairs[index]
+        is_ternary_jpeg = pair.ternary_path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS
+        if is_ternary_jpeg and not jpeg_confirmed:
+            if not confirm_ternary_jpeg_import(self, pair.ternary_path):
+                self._message("JPEG三値画像の取込を中止した。現在の画像は変更していない")
+                self._sync_list_selection()
+                return False
+            jpeg_confirmed = True
         had_image = self.canvas.has_image
         try:
-            self.session.open_pair(pair, source, expected_size=self.expected_size)
+            self.session.open_pair(
+                pair,
+                source,
+                expected_size=self.expected_size,
+                allow_jpeg_import=jpeg_confirmed,
+            )
         except ImageValidationError as exc:
             if source == EditSource.OUTPUT and exc.path == pair.output_path:
                 self._output_errors[index] = str(exc)
                 self._refresh_pair_items()
                 if self._ask_input_fallback(exc):
-                    return self._open_pair(index, EditSource.INPUT)
+                    return self._open_pair(
+                        index,
+                        EditSource.INPUT,
+                        jpeg_confirmed=jpeg_confirmed,
+                    )
                 show_error(self, "編集済み画像を利用できない", str(exc))
                 self._sync_list_selection()
                 self._update_interface()
@@ -1046,6 +1253,18 @@ class MainWindow(QMainWindow):
             self._update_interface()
             return False
 
+        return self._finish_open_pair(index, source, had_image=had_image)
+
+    def _finish_open_pair(
+        self,
+        index: int,
+        source: EditSource,
+        *,
+        had_image: bool,
+    ) -> bool:
+        """読込成功済みの現在sessionを画面状態へ反映する。"""
+
+        pair = self._pairs[index]
         self._detach_component_result()
         assert self.session.original_rgb is not None
         assert self.session.labels is not None
@@ -1066,13 +1285,20 @@ class MainWindow(QMainWindow):
         self.controls.set_component_count(None)
         self._refresh_pair_items()
         self._sync_list_selection()
-        if self.session.normalization.changed:
-            self._message(
-                f"{pair.ternary_stem} を開いた｜下端保護領域を無へ正規化: "
-                f"{self.session.normalization.changed_pixels}画素｜未保存"
+        opened_parts = [f"{pair.ternary_stem} を開いた"]
+        if self.session.import_report.quantized:
+            opened_parts.append(
+                f"JPEGを三値化: {self.session.import_report.total_pixels}画素"
             )
-        else:
-            self._message(f"{pair.ternary_stem} を開いた")
+            opened_parts.append("PNG保存が必要")
+        if self.session.normalization.changed:
+            opened_parts.append(
+                f"下端保護領域を無へ正規化: "
+                f"{self.session.normalization.changed_pixels}画素"
+            )
+        if self.session.is_dirty:
+            opened_parts.append("未保存")
+        self._message("｜".join(opened_parts))
         self._update_interface()
         self._request_components()
         return True
@@ -1099,8 +1325,9 @@ class MainWindow(QMainWindow):
         if choice == UnsavedChoice.SAVE:
             self.request_save(continuation=continuation)
         elif choice == UnsavedChoice.DISCARD:
-            self.session.close()
-            self._detach_component_result()
+            # The old session remains intact until the continuation commits a
+            # replacement.  A failed image open or a later JPEG cancellation
+            # must not turn an intended transition into data loss.
             continuation()
 
     def _go_previous(self) -> None:
@@ -1119,12 +1346,17 @@ class MainWindow(QMainWindow):
         if first_source is None:
             self._sync_list_selection()
             return
+        first_jpeg_confirmed = self._preconfirm_ternary_jpeg(self._pairs[first_target])
+        if first_jpeg_confirmed is None:
+            self._sync_list_selection()
+            return
 
         def move() -> None:
             target = first_target
             source = first_source
+            jpeg_confirmed = first_jpeg_confirmed
             while True:
-                if self._open_pair(target, source):
+                if self._open_pair(target, source, jpeg_confirmed=jpeg_confirmed):
                     return
                 if target not in self._pair_errors:
                     return
@@ -1138,6 +1370,7 @@ class MainWindow(QMainWindow):
                     return
                 target = next_target
                 source = next_source
+                jpeg_confirmed = False
 
         self._with_unsaved_resolution("画像移動", move)
 
@@ -1185,7 +1418,7 @@ class MainWindow(QMainWindow):
             not self._labels_are_visible()
             or self._job_is_blocking()
             or self.session.labels is None
-            or y >= BOTTOM_PROTECTED_START_Y
+            or self._pixel_is_protected(y)
         ):
             return
         self._stroke_before = self.session.labels.copy()
@@ -1265,7 +1498,7 @@ class MainWindow(QMainWindow):
     def _request_fill(self, x: int, y: int) -> None:
         if not self._labels_are_visible() or self.session.labels is None:
             return
-        if y >= BOTTOM_PROTECTED_START_Y:
+        if self._pixel_is_protected(y):
             self._message("下端100画素・強制無領域は編集できない")
             return
         if self._active_job is not None:
@@ -1705,7 +1938,7 @@ class MainWindow(QMainWindow):
         )
         if pixel is None:
             self.protection_status.setText("保護: —")
-        elif pixel[1] >= BOTTOM_PROTECTED_START_Y:
+        elif self._pixel_is_protected(pixel[1]):
             self.protection_status.setText("保護: 下端100画素・強制無領域")
         elif not self._labels_are_visible():
             self.protection_status.setText("保護: 三値画像非表示・編集停止")
@@ -1821,6 +2054,8 @@ class MainWindow(QMainWindow):
             document_state = "読込済み・未変更"
         if self.session.normalization.changed:
             document_state += f"｜下端正規化 {self.session.normalization.changed_pixels}画素"
+        if self.session.import_report.quantized:
+            document_state += "｜JPEG三値化"
         if self._active_job is not None:
             return f"{document_state}｜処理中: {self._active_job.description}"
         if self._latest_component_token is not None:
@@ -1832,6 +2067,12 @@ class MainWindow(QMainWindow):
 
     def _labels_are_visible(self) -> bool:
         return self.controls.ternary_visible.isChecked()
+
+    def _pixel_is_protected(self, y: float | int) -> bool:
+        labels = self.session.labels
+        if labels is None:
+            return False
+        return y >= protected_start_y(int(labels.shape[0]))
 
     def _sync_list_selection(self) -> None:
         blocked = self.image_list.blockSignals(True)
@@ -1873,9 +2114,25 @@ class MainWindow(QMainWindow):
             self.settings.value("folders/output", "", type=str),
         )
 
-    def _write_folders(self, folders: tuple[Path, Path, Path]) -> None:
+    def _stored_pairing_mode(self) -> PairingMode:
+        raw = self.settings.value(
+            "pairing/mode",
+            PairingMode.STRICT_KEY.value,
+            type=str,
+        )
+        try:
+            return PairingMode(raw)
+        except ValueError:
+            return PairingMode.STRICT_KEY
+
+    def _write_folders(
+        self,
+        folders: tuple[Path, Path, Path],
+        pairing_mode: PairingMode,
+    ) -> None:
         for key, folder in zip(("original", "ternary", "output"), folders, strict=True):
             self.settings.setValue(f"folders/{key}", str(folder))
+        self.settings.setValue("pairing/mode", pairing_mode.value)
 
     @staticmethod
     def _decode_palette(value: Any) -> tuple[tuple[int, int, int], ...] | None:

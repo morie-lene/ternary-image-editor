@@ -6,17 +6,25 @@ from enum import StrEnum
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QHeaderView,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
+
+from .models import PairingMode, PairingResult
 
 
 class UnsavedChoice(StrEnum):
@@ -53,19 +61,30 @@ class FolderSelectionDialog(QDialog):
         original: str = "",
         ternary: str = "",
         output: str = "",
+        pairing_mode: PairingMode | str = PairingMode.STRICT_KEY,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("フォルダを指定")
         self.setModal(True)
-        self.resize(720, 180)
+        self.resize(720, 220)
 
         self.original_edit = QLineEdit(original)
         self.ternary_edit = QLineEdit(ternary)
         self.output_edit = QLineEdit(output)
+        self.pairing_mode_combo = QComboBox(self)
+        self.pairing_mode_combo.addItem("仕様キーで厳格対応", PairingMode.STRICT_KEY.value)
+        self.pairing_mode_combo.addItem(
+            "ファイル名の自然順で対応（確認必須）",
+            PairingMode.NATURAL_ORDER.value,
+        )
+        requested_mode = PairingMode(pairing_mode)
+        requested_index = self.pairing_mode_combo.findData(requested_mode.value)
+        self.pairing_mode_combo.setCurrentIndex(max(requested_index, 0))
         form = QFormLayout()
         form.addRow("原画像フォルダ", self._path_row(self.original_edit))
         form.addRow("三値画像フォルダ", self._path_row(self.ternary_edit))
         form.addRow("編集済み画像出力フォルダ", self._path_row(self.output_edit))
+        form.addRow("対応方式", self.pairing_mode_combo)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -87,6 +106,10 @@ class FolderSelectionDialog(QDialog):
             Path(self.ternary_edit.text()),
             Path(self.output_edit.text()),
         )
+
+    @property
+    def pairing_mode(self) -> PairingMode:
+        return PairingMode(str(self.pairing_mode_combo.currentData()))
 
     def _path_row(self, edit: QLineEdit) -> QWidget:
         row = QWidget(self)
@@ -116,6 +139,94 @@ class FolderSelectionDialog(QDialog):
                 for edit in (self.original_edit, self.ternary_edit, self.output_edit)
             )
         )
+
+
+class NaturalPairingPreviewDialog(QDialog):
+    """自然順で提案された全対応を、確定前に並列表として示す。"""
+
+    def __init__(self, result: PairingResult, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        if result.pairing_mode is not PairingMode.NATURAL_ORDER:
+            raise ValueError("自然順の対応計画だけを確認できる")
+        self.setWindowTitle("自然順の対応を確認")
+        self.setModal(True)
+        self.resize(1100, 620)
+
+        explanation = QLabel(
+            "原画像群と三値画像群を別々に自然順整列した結果だ。"
+            "行の対応を全件確認してから読み込め。",
+            self,
+        )
+        explanation.setWordWrap(True)
+
+        self.table = QTableWidget(len(result.pairs), 4, self)
+        self.table.setHorizontalHeaderLabels(("番号", "原画像", "三値画像", "出力PNG"))
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        for column in (1, 2, 3):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
+
+        for row, pair in enumerate(result.pairs):
+            values = (
+                str(row + 1),
+                pair.original_path.name,
+                pair.ternary_path.name,
+                pair.output_path.name,
+            )
+            paths = (None, pair.original_path, pair.ternary_path, pair.output_path)
+            for column, (value, path) in enumerate(zip(values, paths, strict=True)):
+                item = QTableWidgetItem(value)
+                if path is not None:
+                    item.setToolTip(str(path))
+                self.table.setItem(row, column, item)
+
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        accept = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        accept.setText("この対応で読み込む")
+        cancel = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel.setText("中止")
+        cancel.setDefault(True)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(explanation)
+        layout.addWidget(self.table, 1)
+        layout.addWidget(self.buttons)
+
+
+def confirm_natural_pairing(parent: QWidget, result: PairingResult) -> bool:
+    return NaturalPairingPreviewDialog(result, parent).exec() == QDialog.DialogCode.Accepted
+
+
+def confirm_ternary_jpeg_import(parent: QWidget, path: Path) -> bool:
+    """不可逆なJPEG三値化を開く直前に一件ずつ確認する。"""
+
+    box = QMessageBox(parent)
+    box.setWindowTitle("JPEG三値画像を変換")
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setText(
+        "JPEG圧縮で元の三色値が変化しているため、ソフトウェア側で三値化する。"
+    )
+    box.setInformativeText(
+        "sRGB上で黒・灰・白の最も近い色へ各画素を割り当てる。"
+        "同距離なら黒、次いで灰を優先する。"
+        "入力JPEGは変更せず、保存時にRGB PNGを新規作成または明示上書きする。\n"
+        f"{path}"
+    )
+    accept = box.addButton("三値化して開く", QMessageBox.ButtonRole.AcceptRole)
+    cancel = box.addButton("中止", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(cancel)
+    box.setEscapeButton(cancel)
+    box.exec()
+    return box.clickedButton() is accept
 
 
 def ask_unsaved(parent: QWidget, action_name: str) -> UnsavedChoice:

@@ -9,3 +9,4 @@ dist/
 *.spec
 tests/*
 !tests/test_packaging.py
+!tests/test_flexible_input_contract.py
