@@ -18,6 +18,8 @@ $IconDirectory = Join-Path $ProjectRoot "src/ternary_image_editor/assets"
 $ExecutableIconSource = Join-Path $IconDirectory "app_icon.ico"
 $RuntimeIconSource = Join-Path $IconDirectory "app_icon.png"
 $BundledRuntimeIconPath = Join-Path $BundlePath "_internal\ternary_image_editor\assets\app_icon.png"
+$TestDirectory = Join-Path $ProjectRoot "tests"
+$PackagingTestPath = Join-Path $TestDirectory "test_packaging.py"
 
 function Assert-NativeSuccess([string]$Step) {
     if ($LASTEXITCODE -ne 0) {
@@ -25,15 +27,20 @@ function Assert-NativeSuccess([string]$Step) {
     }
 }
 
-foreach ($RequiredAsset in @($ExecutableIconSource, $RuntimeIconSource)) {
-    if (-not (Test-Path -LiteralPath $RequiredAsset -PathType Leaf)) {
-        throw "Required application icon asset is missing: $RequiredAsset"
+foreach ($RequiredInput in @(
+    $ExecutableIconSource,
+    $RuntimeIconSource,
+    $SpecSource,
+    $PackagingTestPath
+)) {
+    if (-not (Test-Path -LiteralPath $RequiredInput -PathType Leaf)) {
+        throw "Required build input is missing: $RequiredInput"
     }
 }
 
 uv sync --locked --python 3.11
 Assert-NativeSuccess "uv sync"
-uv run pytest
+uv run pytest $TestDirectory
 Assert-NativeSuccess "pytest"
 uv run ruff check .
 Assert-NativeSuccess "ruff"

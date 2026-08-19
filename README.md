@@ -38,12 +38,16 @@ macOS/Linuxでも開発確認には同じ入口を使えるが、配布対象と
 小領域強調、疑似色、格子、原画像、筆ポインタは表示専用であり、出力へ混入しない。
 三値画像を非表示にしている間は画素編集とUndo・Redoも停止する。
 
-試験と静的検査:
+公開リポジトリには、Python配布物とWindows構築スクリプトの不変条件を再現する
+`tests/test_packaging.py`を含める。取得後は次を実行する。
 
 ```powershell
 uv run pytest
 uv run ruff check .
 ```
+
+公開試験はsdist・wheelの生成内容、必須資産、入口、Windows構築スクリプトの失敗伝播と
+成果物検査を対象とする。画像編集機能全体の受入やWindows上のexe起動を証明するものではない。
 
 ## データ境界
 
@@ -73,15 +77,31 @@ macOS 上の開発試験と Windows 上の最終受理を分ける。Windows 10 
 
 ## Windows配布候補
 
-Windows上で次を実行すると、試験と静的検査の後にPyInstallerのone-folder配布候補を作る。
-構築スクリプトは旧候補を限定削除し、生成exeの配置、非零長、MZ先頭、一意性、
-SHA-256を検査してから成功表示する。
+Windows上で次を実行すると、公開配布試験と静的検査の後にPyInstallerのone-folder配布候補を
+作る。`tests/`が無い場合、試験が不合格の場合、または静的検査が不合格の場合は構築を止める。
+構築スクリプトは旧候補を限定削除し、生成exeの配置、非零長、MZ先頭、一意性、SHA-256を
+検査してから成功表示する。
+
+実行位置は、`pyproject.toml`、`uv.lock`、`scripts/`、`src/`、`docs/`が並ぶ
+リポジトリ直下とする。GitHubから取得したZIPを既定名で展開した場合は、
+`ternary-image-editor-main`フォルダがリポジトリ直下に当たる。PowerShellで同フォルダへ移動し、
+`uv --version`が版番号を返す状態で構築する。次はDownloadsへ展開した場合の例である。
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+Set-Location "$env:USERPROFILE\Downloads\ternary-image-editor-main"
+uv --version
+powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 ```
 
-成果物は `dist/TernaryImageEditor/TernaryImageEditor.exe`。配布判断前に
+構築スクリプトは自身の配置からリポジトリ直下を解決するため、別の作業フォルダから
+絶対パスで呼び出してもよい。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\work\ternary-image-editor-main\scripts\build_windows.ps1"
+```
+
+成果物は、実行時の作業フォルダにかかわらず、リポジトリ直下の
+`dist/TernaryImageEditor/TernaryImageEditor.exe`。配布判断前に
 [Windows最終受入チェックリスト](docs/windows-acceptance-checklist.md)を埋める。構築時には
 同じ配布フォルダの `docs/` へv1.5要求正本を複製し、固定SHA-256も検査する。
 
