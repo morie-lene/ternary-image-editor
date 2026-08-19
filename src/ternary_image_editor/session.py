@@ -13,6 +13,7 @@ from .constants import TERNARY_JPEG_EXTENSIONS
 from .errors import (
     BusyError,
     ExternalOutputModificationError,
+    ImageValidationError,
     JpegImportConfirmationRequired,
     NoImageLoadedError,
     PairDimensionError,
@@ -207,36 +208,55 @@ class ImageSession:
         edit_source = EditSource(source)
         ternary_path = Path(pair.ternary_path)
         if (
-            ternary_path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS
+            edit_source == EditSource.INPUT
+            and ternary_path.suffix.casefold() in TERNARY_JPEG_EXTENSIONS
             and not allow_jpeg_import
         ):
             raise JpegImportConfirmationRequired(ternary_path)
         loaded_original = load_original_image(pair.original_path, expected_size=expected_size)
-        loaded_input = load_ternary_image(pair.ternary_path, expected_size=expected_size)
         original_size = (
             int(loaded_original.rgb.shape[1]),
             int(loaded_original.rgb.shape[0]),
         )
-        input_size = (
-            int(loaded_input.labels.shape[1]),
-            int(loaded_input.labels.shape[0]),
-        )
-        if original_size != input_size:
+        if edit_source == EditSource.OUTPUT:
+            loaded_labels = load_output_image(pair.output_path, expected_size=expected_size)
+            label_size = (
+                int(loaded_labels.labels.shape[1]),
+                int(loaded_labels.labels.shape[0]),
+            )
+            label_path = pair.output_path
+            label_role = "編集済み画像"
+            ternary_fingerprint = None
+        else:
+            loaded_input = load_ternary_image(
+                ternary_path,
+                expected_size=expected_size,
+            )
+            loaded_labels = loaded_input
+            label_size = (
+                int(loaded_input.labels.shape[1]),
+                int(loaded_input.labels.shape[0]),
+            )
+            label_path = pair.ternary_path
+            label_role = "入力三値画像"
+            ternary_fingerprint = loaded_input.fingerprint
+        if original_size != label_size:
             raise PairDimensionError(
                 original_path=pair.original_path,
                 original_size=original_size,
-                ternary_path=pair.ternary_path,
-                ternary_size=input_size,
+                ternary_path=label_path,
+                ternary_size=label_size,
+                ternary_role=label_role,
             )
-        if edit_source == EditSource.OUTPUT:
-            loaded_labels = load_output_image(pair.output_path, expected_size=original_size)
-        else:
-            loaded_labels = loaded_input
         try:
             current_output_fingerprint = fingerprint_file(pair.output_path)
-        except OSError:
+        except OSError as exc:
             if edit_source == EditSource.OUTPUT:
-                raise
+                raise ImageValidationError(
+                    pair.output_path,
+                    "編集済み画像の読込に失敗",
+                    (str(exc),),
+                ) from exc
             # 入力版は、壊れた・読めない・通常ファイルでない既存出力があっても
             # 開けるようにする。保存時には改めて検査し、無言では置換しない。
             current_output_fingerprint = None
@@ -287,7 +307,7 @@ class ImageSession:
         self._baseline_labels = baseline_labels
         self._edit_source = edit_source
         self._original_fingerprint = loaded_original.fingerprint
-        self._ternary_fingerprint = loaded_input.fingerprint
+        self._ternary_fingerprint = ternary_fingerprint
         self._output_fingerprint = current_output_fingerprint
         self._normalization = loaded_labels.normalization
         self._import_report = loaded_labels.import_report
@@ -498,23 +518,27 @@ class ImageSession:
                 and not force
             ):
                 expected_fingerprint = None
+            source_baselines = [
+                FileBaseline(
+                    role=FileRole.ORIGINAL,
+                    path=self._pair.original_path,
+                    fingerprint=self._original_fingerprint,
+                )
+            ]
+            if self._edit_source == EditSource.INPUT:
+                source_baselines.append(
+                    FileBaseline(
+                        role=FileRole.INPUT_TERNARY,
+                        path=self._pair.ternary_path,
+                        fingerprint=self._ternary_fingerprint,
+                    )
+                )
             fingerprint = save_labels_atomic(
                 labels,
                 self._pair.output_path,
                 expected_fingerprint=expected_fingerprint,
                 force=force,
-                source_baselines=(
-                    FileBaseline(
-                        role=FileRole.ORIGINAL,
-                        path=self._pair.original_path,
-                        fingerprint=self._original_fingerprint,
-                    ),
-                    FileBaseline(
-                        role=FileRole.INPUT_TERNARY,
-                        path=self._pair.ternary_path,
-                        fingerprint=self._ternary_fingerprint,
-                    ),
-                ),
+                source_baselines=source_baselines,
                 allow_stale_sources=allow_stale_sources,
                 expected_size=current_size,
             )

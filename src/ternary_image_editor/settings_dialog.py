@@ -464,6 +464,11 @@ class SettingsDialog(QDialog):
         self.ternary_visible.setChecked(self.work_copy.ternary_visible)
         self.pseudo_enabled = QCheckBox("疑似色", view_group)
         self.pseudo_enabled.setChecked(self.work_copy.pseudo_enabled)
+        self.darken_comparison = QCheckBox("比較（暗）", view_group)
+        self.darken_comparison.setChecked(self.work_copy.darken_comparison_enabled)
+        self.darken_comparison.setToolTip(
+            "原画像と三値画像の各色成分の暗い方を表示する（保存画像には影響しない）"
+        )
         self.grid_auto = QCheckBox("画素格子を自動表示", view_group)
         self.grid_auto.setChecked(self.work_copy.grid_auto)
         self.small_components = QCheckBox("小領域を強調", view_group)
@@ -475,6 +480,7 @@ class SettingsDialog(QDialog):
         view_form.addRow(self.original_visible)
         view_form.addRow(self.ternary_visible)
         view_form.addRow(self.pseudo_enabled)
+        view_form.addRow(self.darken_comparison)
         view_form.addRow("原画像不透明度", self.original_opacity)
         view_form.addRow(self.grid_auto)
         view_form.addRow(self.small_components)
@@ -637,7 +643,7 @@ class SettingsDialog(QDialog):
         self._clear_wheel_tail()
         self.capture.start(target)
         self.shortcut_table.item(row, column).setText("入力待機…")
-        self.capture_status.setText("最初の有効な鍵盤・マウス入力を行え。Escで取消。")
+        self.capture_status.setText("入力待機中：鍵盤またはマウスを操作（Escで中止）")
 
     def begin_selected_capture(self) -> None:
         target = self._selected_target(default_primary=True)
@@ -682,7 +688,7 @@ class SettingsDialog(QDialog):
                     self.capture_status.setText("既定割当が同一操作内で重複している")
                     return
                 if self._resolve_conflict(conflict) != "move":
-                    self.capture_status.setText("既定復元を取り消した")
+                    self.capture_status.setText("既定復元を中止｜割当は変更なし")
                     return
                 move = True
             preview.assign(target.operation_id, slot, value, move_conflict=move)
@@ -696,8 +702,8 @@ class SettingsDialog(QDialog):
             if self._confirm_restore_all is not None
             else QMessageBox.question(
                 self,
-                "全体既定復元",
-                "全ての入力割当を既定へ戻すか？",
+                "入力割当の初期化確認",
+                "全ての入力割当を既定値へ戻します。現在の割当は失われます。",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -734,7 +740,7 @@ class SettingsDialog(QDialog):
             if self._apply_callback is not None:
                 self._apply_callback(candidate)
         except Exception as exc:  # noqa: BLE001 - persistence/application boundary
-            self.capture_status.setText(f"設定を適用できない: {exc}")
+            self.capture_status.setText(f"設定適用エラー：{exc}")
             return False
         self._applied_settings = candidate
         self.work_copy = candidate.work_copy()
@@ -758,7 +764,8 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "疑似色の識別性",
-                f"色差が64未満の組がある。\n{detail}\nそれでも保存するか？",
+                "次の組合せは色差が64未満で、識別しにくい可能性があります。"
+                f"\n{detail}\n\nこの設定を適用しますか。",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -772,6 +779,7 @@ class SettingsDialog(QDialog):
         self.work_copy.original_visible = self.original_visible.isChecked()
         self.work_copy.ternary_visible = self.ternary_visible.isChecked()
         self.work_copy.pseudo_enabled = self.pseudo_enabled.isChecked()
+        self.work_copy.darken_comparison_enabled = self.darken_comparison.isChecked()
         self.work_copy.pseudo_colors = [
             normalize_hex_color(edit.text()) for edit in self.color_edits
         ]
@@ -808,7 +816,7 @@ class SettingsDialog(QDialog):
                 return
             resolution = self._resolve_conflict(conflict)
             if resolution != "move":
-                self.capture_status.setText("競合する変更を取り消した")
+                self.capture_status.setText("競合解消を中止｜割当は変更なし")
                 self._refresh_shortcut_table()
                 return
             move_conflict = True
@@ -830,7 +838,7 @@ class SettingsDialog(QDialog):
             result.status is AssignmentStatus.APPLIED
             and not self._confirm_fixed_pointer_override(normalized)
         ):
-            self.capture_status.setText("固定マウス操作を置き換える変更を取り消した")
+            self.capture_status.setText("固定マウス操作の置換を中止｜割当は変更なし")
             self._refresh_shortcut_table()
             return
         if result.status in {AssignmentStatus.APPLIED, AssignmentStatus.UNCHANGED}:
@@ -852,10 +860,10 @@ class SettingsDialog(QDialog):
             "WheelUp",
             "WheelDown",
         }:
-            return "割当できない: ホイール入力には解放事象がないため、保持操作には使えない"
+            return "割当不可：ホイール入力は保持操作に使用不可"
         if target.operation_id == "view.temporary-pan" and pointer_base(binding) == "MouseLeft":
-            return "割当できない: 左ボタン入力は描画と衝突するため、一時パン操作には使えない"
-        return f"割当できない: {fallback}"
+            return "割当不可：左ボタンは描画と衝突するため、一時パン操作に使用不可"
+        return f"割当不可：{fallback}"
 
     def _confirm_fixed_pointer_override(self, binding: str) -> bool:
         if not binding_is_pointer(binding):
@@ -874,9 +882,9 @@ class SettingsDialog(QDialog):
         return (
             QMessageBox.warning(
                 self,
-                "固定マウス操作の置換",
-                f"{native_binding(binding)} を割り当てると、{effect}がこの入力では働かなくなる。\n"
-                "それでも割り当てるか？",
+                "固定マウス操作の変更確認",
+                f"{native_binding(binding)} を割り当てると、固定操作「{effect}」は"
+                "この入力で利用できなくなります。\n\n割当を変更しますか。",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -887,21 +895,22 @@ class SettingsDialog(QDialog):
         if self._conflict_resolver is not None:
             return self._conflict_resolver(conflict)
         owner = OPERATION_BY_ID[conflict.owner.operation_id]
+        requested = OPERATION_BY_ID[conflict.requested.operation_id]
         answer = QMessageBox.question(
             self,
-            "入力割当の競合",
-            f"{native_binding(conflict.sequence)} は「{owner.name}」に割当済みだ。\n"
-            "既存操作から移すか？",
+            "入力割当の競合確認",
+            f"{native_binding(conflict.sequence)} は「{owner.name}」に割当済みです。\n"
+            f"既存割当を解除し、「{requested.name}」へ移動しますか。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         return "move" if answer == QMessageBox.StandardButton.Yes else "cancel"
 
     def _capture_rejected(self, reason: str) -> None:
-        self.capture_status.setText(f"{reason}。別の入力を行うかEscで取り消せ。")
+        self.capture_status.setText(f"割当不可：{reason}。別の入力を操作（Escで中止）")
 
     def _capture_cancelled(self, reason: str) -> None:
-        self.capture_status.setText(f"入力待機を取り消した: {reason}")
+        self.capture_status.setText(f"入力待機を中止｜理由：{reason}")
         self._refresh_shortcut_table()
 
     def _arm_wheel_tail(self, event: QWheelEvent) -> None:

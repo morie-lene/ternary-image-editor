@@ -132,15 +132,15 @@ def plan_pairing(
 
     if not original_paths or not ternary_paths:
         result.blocking_reason = (
-            "読込候補数が不足: "
-            f"原画像={len(original_paths)}件、三値画像={len(ternary_paths)}件。"
-            "それぞれ1件以上の対応形式画像が必要"
+            "読込候補が不足｜"
+            f"原画像={len(original_paths)}件｜三値画像={len(ternary_paths)}件｜"
+            "各1件以上が必要"
         )
         result.excluded.append(
             ExcludedItem(
                 reason_code="empty_candidate_group",
                 message=(
-                    f"読込候補数が不足: 原画像={len(original_paths)}件、"
+                    f"読込候補が不足｜原画像={len(original_paths)}件｜"
                     f"三値画像={len(ternary_paths)}件"
                 ),
                 paths=tuple(_sorted_paths([*original_paths, *ternary_paths])),
@@ -150,7 +150,7 @@ def plan_pairing(
 
     if len(original_paths) != len(ternary_paths):
         result.blocking_reason = (
-            f"画像群の件数不一致: 原画像={len(original_paths)}件、"
+            f"画像群の件数不一致｜原画像={len(original_paths)}件｜"
             f"三値画像={len(ternary_paths)}件"
         )
         result.excluded.append(
@@ -202,7 +202,7 @@ def plan_pairing(
             result.excluded.append(
                 ExcludedItem(
                     reason_code="duplicate_pair_key",
-                    message="同一対応キーが重複しているため自動選択しない",
+                    message="同じ対応キーの画像が複数あるため対象外",
                     paths=paths,
                     key=key,
                 )
@@ -212,7 +212,7 @@ def plan_pairing(
             result.excluded.append(
                 ExcludedItem(
                     reason_code="missing_counterpart",
-                    message="対応相手がない",
+                    message="対応する画像なし",
                     paths=paths,
                     key=key,
                 )
@@ -285,7 +285,7 @@ def _install_collision_checked_pairs(
         )
 
     if block_all and collided_output_keys:
-        result.blocking_reason = "自然順の全対応を保存できない出力名衝突がある"
+        result.blocking_reason = "自然順の対応に出力名の衝突があるため全件を読込不可"
         result.pairs = []
         return
     result.pairs = [
@@ -308,7 +308,7 @@ def _scan_supported_paths(
             excluded.append(
                 ExcludedItem(
                     reason_code="unsupported_extension",
-                    message="対応していない画像形式",
+                    message="対応外の画像拡張子",
                     paths=(path,),
                 )
             )
@@ -329,8 +329,8 @@ def _index_strict_candidates(
         except ValueError as exc:
             reason_code = str(exc)
             message = {
-                "stem_too_short": f"幹名が{PAIR_SUFFIX_LENGTH}文字未満",
-                "unexpected_prefix": "想定外の先頭文字列",
+                "stem_too_short": f"ファイル名の識別部が{PAIR_SUFFIX_LENGTH}文字未満",
+                "unexpected_prefix": "ファイル名の先頭が規則外",
             }[reason_code]
             excluded.append(ExcludedItem(reason_code=reason_code, message=message, paths=(path,)))
             continue

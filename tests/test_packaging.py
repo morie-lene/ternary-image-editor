@@ -13,6 +13,9 @@ ADDENDUM_PATH = PROJECT_ROOT / "docs" / "mouse-input-bindings-addendum.md"
 FLEXIBLE_INPUT_ADDENDUM_PATH = (
     PROJECT_ROOT / "docs" / "flexible-input-pairing-addendum.md"
 )
+DISPLAY_COMPARISON_ADDENDUM_PATH = (
+    PROJECT_ROOT / "docs" / "display-comparison-addendum.md"
+)
 
 
 def _build_script() -> str:
@@ -49,10 +52,16 @@ def test_windows_build_requires_public_tests_and_checks_native_exit_codes() -> N
         '$FlexibleInputTestPath = Join-Path $TestDirectory '
         '"test_flexible_input_contract.py"'
     ) in script
+    assert (
+        '$DisplayComparisonTestPath = Join-Path $TestDirectory '
+        '"test_display_comparison_contract.py"'
+    ) in script
     assert "$PackagingTestPath" in required_inputs
     assert "$FlexibleInputTestPath" in required_inputs
+    assert "$DisplayComparisonTestPath" in required_inputs
     assert "$AddendumSource" in required_inputs
     assert "$FlexibleInputAddendumSource" in required_inputs
+    assert "$DisplayComparisonAddendumSource" in required_inputs
     assert "uv run pytest $TestDirectory" in script
     assert "Write-Warning" not in script
     assert script.index('Assert-NativeSuccess "uv sync"') > script.index("uv sync --locked")
@@ -83,6 +92,12 @@ def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
     flexible_addendum_hash_index = script.index(
         "Bundled flexible-input pairing addendum hash mismatch"
     )
+    display_addendum_copy_index = script.index(
+        "-LiteralPath $DisplayComparisonAddendumSource"
+    )
+    display_addendum_hash_index = script.index(
+        "Bundled display-comparison addendum hash mismatch"
+    )
     hash_index = script.index("Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256")
     report_index = script.index('Write-Host "配布候補: $ArtifactPath"')
 
@@ -94,7 +109,12 @@ def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
     assert header_index < uniqueness_index < spec_copy_index < spec_hash_index
     assert spec_hash_index < addendum_copy_index < addendum_hash_index
     assert addendum_hash_index < flexible_addendum_copy_index < flexible_addendum_hash_index
-    assert flexible_addendum_hash_index < hash_index < report_index
+    assert (
+        flexible_addendum_hash_index
+        < display_addendum_copy_index
+        < display_addendum_hash_index
+    )
+    assert display_addendum_hash_index < hash_index < report_index
     assert "ternary_image_editor_spec_v1_5.html" in script
     spec_path = PROJECT_ROOT / "docs" / "ternary_image_editor_spec_v1_5.html"
     assert f'$ExpectedSpecHash = "{_sha256(spec_path)}"' in script
@@ -104,12 +124,21 @@ def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
         f'"{_sha256(FLEXIBLE_INPUT_ADDENDUM_PATH)}"'
     ) in script
     assert (
+        f'$ExpectedDisplayComparisonAddendumHash = '
+        f'"{_sha256(DISPLAY_COMPARISON_ADDENDUM_PATH)}"'
+    ) in script
+    assert (
         'Write-Host "可変入力・組合せ追補: $FlexibleInputAddendumPath"'
         in script
     )
     assert (
         'Write-Host "可変入力・組合せ追補SHA-256: '
         '$FlexibleInputAddendumHash"'
+    ) in script
+    assert 'Write-Host "表示比較（暗）追補: $DisplayComparisonAddendumPath"' in script
+    assert (
+        'Write-Host "表示比較（暗）追補SHA-256: '
+        '$DisplayComparisonAddendumHash"'
     ) in script
 
 
@@ -139,8 +168,10 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
         "docs/ternary_image_editor_spec_v1_5.html",
         "docs/mouse-input-bindings-addendum.md",
         "docs/flexible-input-pairing-addendum.md",
+        "docs/display-comparison-addendum.md",
         "tests/test_packaging.py",
         "tests/test_flexible_input_contract.py",
+        "tests/test_display_comparison_contract.py",
         "uv.lock",
     }
     for relative_path in required_source_paths:
@@ -151,6 +182,7 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
         if name.startswith(f"{source_root}/tests/")
     }
     assert public_test_paths == {
+        "tests/test_display_comparison_contract.py",
         "tests/test_flexible_input_contract.py",
         "tests/test_packaging.py",
     }

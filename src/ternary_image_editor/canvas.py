@@ -147,6 +147,7 @@ class ImageCanvas(QWidget):
         self.original_visible = True
         self.original_opacity = 0.5
         self.pseudo_enabled = False
+        self.darken_comparison_enabled = False
         self.pseudo_palette = DEFAULT_PSEUDO_RGB
         self.auto_grid_enabled = True
         self.warning_visible = False
@@ -267,6 +268,16 @@ class ImageCanvas(QWidget):
     def set_pseudo_enabled(self, enabled: bool) -> None:
         self.pseudo_enabled = enabled
         self._refresh_label_image()
+        self.update()
+
+    def set_darken_comparison_enabled(self, enabled: bool) -> None:
+        """表示合成だけを比較（暗）へ切り替え、画像データには作用させない。"""
+
+        requested = bool(enabled)
+        if requested == self.darken_comparison_enabled:
+            return
+        self.darken_comparison_enabled = requested
+        self._invalidate_display_image()
         self.update()
 
     def set_pseudo_palette(self, palette: tuple[tuple[int, int, int], ...]) -> None:
@@ -584,6 +595,7 @@ class ImageCanvas(QWidget):
             self.original_visible,
             round(self.original_opacity, 12),
             self.pseudo_enabled,
+            self.darken_comparison_enabled,
         )
         if self._display_image_key == key:
             return self._display_image
@@ -601,9 +613,13 @@ class ImageCanvas(QWidget):
                     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
                     painter.setOpacity(self.original_opacity)
                     painter.setCompositionMode(
-                        QPainter.CompositionMode.CompositionMode_SourceOver
-                        if self.pseudo_enabled
-                        else QPainter.CompositionMode.CompositionMode_Lighten
+                        QPainter.CompositionMode.CompositionMode_Darken
+                        if self.darken_comparison_enabled
+                        else (
+                            QPainter.CompositionMode.CompositionMode_SourceOver
+                            if self.pseudo_enabled
+                            else QPainter.CompositionMode.CompositionMode_Lighten
+                        )
                     )
                     painter.drawImage(0, 0, self._original_image)
                 finally:

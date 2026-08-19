@@ -36,6 +36,7 @@ class EditorControls(QWidget):
     ternary_visibility_changed = Signal(bool)
     opacity_changed = Signal(int)
     pseudo_changed = Signal(bool)
+    darken_comparison_changed = Signal(bool)
     pseudo_palette_changed = Signal(object)
     pseudo_settings_requested = Signal()
     grid_changed = Signal(bool)
@@ -155,6 +156,10 @@ class EditorControls(QWidget):
         self.ternary_visible = QCheckBox("三値画像を表示", group)
         self.ternary_visible.setChecked(True)
         self.pseudo_enabled = QCheckBox("疑似色表示", group)
+        self.darken_comparison = QCheckBox("比較（暗）", group)
+        self.darken_comparison.setToolTip(
+            "原画像と三値画像の各色成分の暗い方を表示する（保存画像には影響しない）"
+        )
         self.grid_enabled = QCheckBox("画素格子を自動表示", group)
         self.grid_enabled.setChecked(True)
         layout.addWidget(self.original_visible)
@@ -171,6 +176,7 @@ class EditorControls(QWidget):
         opacity_row.addWidget(self.opacity_value)
         layout.addLayout(opacity_row)
         layout.addWidget(self.pseudo_enabled)
+        layout.addWidget(self.darken_comparison)
 
         palette_row = QHBoxLayout()
         palette_row.addWidget(QLabel("疑似色", group))
@@ -190,6 +196,7 @@ class EditorControls(QWidget):
         self.ternary_visible.toggled.connect(self.ternary_visibility_changed)
         self.opacity_slider.valueChanged.connect(self._opacity_updated)
         self.pseudo_enabled.toggled.connect(self.pseudo_changed)
+        self.darken_comparison.toggled.connect(self.darken_comparison_changed)
         self.grid_enabled.toggled.connect(self.grid_changed)
         return group
 

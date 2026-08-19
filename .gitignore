@@ -10,3 +10,4 @@ dist/
 tests/*
 !tests/test_packaging.py
 !tests/test_flexible_input_contract.py
+!tests/test_display_comparison_contract.py

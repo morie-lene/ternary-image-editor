@@ -19,7 +19,10 @@ $AddendumPath = Join-Path $SpecDirectory "mouse-input-bindings-addendum.md"
 $ExpectedAddendumHash = "91D7FEC202E9C211DE29FCECAB5BA3DD78BE539B814FB1A58737B38C40964EBA"
 $FlexibleInputAddendumSource = Join-Path $ProjectRoot "docs/flexible-input-pairing-addendum.md"
 $FlexibleInputAddendumPath = Join-Path $SpecDirectory "flexible-input-pairing-addendum.md"
-$ExpectedFlexibleInputAddendumHash = "9F21514F8ABDC473A56184514D6499985F893797C274C1B74CC79F6796034384"
+$ExpectedFlexibleInputAddendumHash = "A2D8A8C1C1C6202A770BAC69F14F5CFED71F8F1428E9FFEE49B4A06875849798"
+$DisplayComparisonAddendumSource = Join-Path $ProjectRoot "docs/display-comparison-addendum.md"
+$DisplayComparisonAddendumPath = Join-Path $SpecDirectory "display-comparison-addendum.md"
+$ExpectedDisplayComparisonAddendumHash = "26F1FF442548D51F66BDB518A14D10D92E52E48C10DAEC877A8AB04AD27E3779"
 $IconDirectory = Join-Path $ProjectRoot "src/ternary_image_editor/assets"
 $ExecutableIconSource = Join-Path $IconDirectory "app_icon.ico"
 $RuntimeIconSource = Join-Path $IconDirectory "app_icon.png"
@@ -27,6 +30,7 @@ $BundledRuntimeIconPath = Join-Path $BundlePath "_internal\ternary_image_editor\
 $TestDirectory = Join-Path $ProjectRoot "tests"
 $PackagingTestPath = Join-Path $TestDirectory "test_packaging.py"
 $FlexibleInputTestPath = Join-Path $TestDirectory "test_flexible_input_contract.py"
+$DisplayComparisonTestPath = Join-Path $TestDirectory "test_display_comparison_contract.py"
 
 function Assert-NativeSuccess([string]$Step) {
     if ($LASTEXITCODE -ne 0) {
@@ -40,8 +44,10 @@ foreach ($RequiredInput in @(
     $SpecSource,
     $AddendumSource,
     $FlexibleInputAddendumSource,
+    $DisplayComparisonAddendumSource,
     $PackagingTestPath,
-    $FlexibleInputTestPath
+    $FlexibleInputTestPath,
+    $DisplayComparisonTestPath
 )) {
     if (-not (Test-Path -LiteralPath $RequiredInput -PathType Leaf)) {
         throw "Required build input is missing: $RequiredInput"
@@ -139,6 +145,17 @@ $FlexibleInputAddendumHash = (
 if ($FlexibleInputAddendumHash -ne $ExpectedFlexibleInputAddendumHash) {
     throw "Bundled flexible-input pairing addendum hash mismatch: $FlexibleInputAddendumPath"
 }
+Copy-Item `
+    -LiteralPath $DisplayComparisonAddendumSource `
+    -Destination $DisplayComparisonAddendumPath `
+    -Force `
+    -ErrorAction Stop
+$DisplayComparisonAddendumHash = (
+    Get-FileHash -LiteralPath $DisplayComparisonAddendumPath -Algorithm SHA256
+).Hash
+if ($DisplayComparisonAddendumHash -ne $ExpectedDisplayComparisonAddendumHash) {
+    throw "Bundled display-comparison addendum hash mismatch: $DisplayComparisonAddendumPath"
+}
 
 $ArtifactHash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash
 Write-Host "配布候補: $ArtifactPath"
@@ -152,3 +169,5 @@ Write-Host "マウス入力割当追補: $AddendumPath"
 Write-Host "マウス入力割当追補SHA-256: $AddendumHash"
 Write-Host "可変入力・組合せ追補: $FlexibleInputAddendumPath"
 Write-Host "可変入力・組合せ追補SHA-256: $FlexibleInputAddendumHash"
+Write-Host "表示比較（暗）追補: $DisplayComparisonAddendumPath"
+Write-Host "表示比較（暗）追補SHA-256: $DisplayComparisonAddendumHash"

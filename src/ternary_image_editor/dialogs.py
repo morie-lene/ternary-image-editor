@@ -33,12 +33,6 @@ class UnsavedChoice(StrEnum):
     CANCEL = "cancel"
 
 
-class ExistingOutputChoice(StrEnum):
-    OUTPUT = "output"
-    INPUT = "input"
-    CANCEL = "cancel"
-
-
 class ExternalChangeChoice(StrEnum):
     RELOAD = "reload"
     OVERWRITE = "overwrite"
@@ -153,8 +147,8 @@ class NaturalPairingPreviewDialog(QDialog):
         self.resize(1100, 620)
 
         explanation = QLabel(
-            "原画像群と三値画像群を別々に自然順整列した結果だ。"
-            "行の対応を全件確認してから読み込め。",
+            f"自然順による対応候補：{len(result.pairs)}件\n"
+            "読み込む前に、全行の組合せを確認してください。",
             self,
         )
         explanation.setWordWrap(True)
@@ -210,15 +204,13 @@ def confirm_ternary_jpeg_import(parent: QWidget, path: Path) -> bool:
     """不可逆なJPEG三値化を開く直前に一件ずつ確認する。"""
 
     box = QMessageBox(parent)
-    box.setWindowTitle("JPEG三値画像を変換")
+    box.setWindowTitle("JPEG三値画像の変換確認")
     box.setIcon(QMessageBox.Icon.Warning)
-    box.setText(
-        "JPEG圧縮で元の三色値が変化しているため、ソフトウェア側で三値化する。"
-    )
+    box.setText("JPEG画像を三値ラベルへ変換して読み込みます。")
     box.setInformativeText(
-        "sRGB上で黒・灰・白の最も近い色へ各画素を割り当てる。"
-        "同距離なら黒、次いで灰を優先する。"
-        "入力JPEGは変更せず、保存時にRGB PNGを新規作成または明示上書きする。\n"
+        "JPEG圧縮による色の変化を補正するため、各画素をsRGB上で最も近い"
+        "黒・灰・白へ割り当てます。同距離の場合は黒、次に灰を優先します。\n"
+        "入力JPEGは変更しません。編集結果はRGB PNGとして保存します。\n\n"
         f"{path}"
     )
     accept = box.addButton("三値化して開く", QMessageBox.ButtonRole.AcceptRole)
@@ -233,7 +225,7 @@ def ask_unsaved(parent: QWidget, action_name: str) -> UnsavedChoice:
     box = QMessageBox(parent)
     box.setWindowTitle("未保存の変更")
     box.setIcon(QMessageBox.Icon.Warning)
-    box.setText(f"未保存の変更がある。{action_name}前に処理を選べ。")
+    box.setText(f"未保存の変更があります。{action_name}時の処理を選択してください。")
     save = box.addButton("保存して続行", QMessageBox.ButtonRole.AcceptRole)
     discard = box.addButton("変更を破棄して続行", QMessageBox.ButtonRole.DestructiveRole)
     cancel = box.addButton("中止", QMessageBox.ButtonRole.RejectRole)
@@ -247,32 +239,21 @@ def ask_unsaved(parent: QWidget, action_name: str) -> UnsavedChoice:
     return UnsavedChoice.CANCEL
 
 
-def ask_existing_output(parent: QWidget, output_path: Path) -> ExistingOutputChoice:
-    box = QMessageBox(parent)
-    box.setWindowTitle("編集済み画像あり")
-    box.setIcon(QMessageBox.Icon.Question)
-    box.setText(f"編集済み画像が存在する。編集元を選べ。\n{output_path}")
-    output = box.addButton("編集済み画像から続ける", QMessageBox.ButtonRole.AcceptRole)
-    input_button = box.addButton("入力三値画像から始める", QMessageBox.ButtonRole.ActionRole)
-    cancel = box.addButton("中止", QMessageBox.ButtonRole.RejectRole)
-    box.setDefaultButton(cancel)
-    box.exec()
-    clicked = box.clickedButton()
-    if clicked is output:
-        return ExistingOutputChoice.OUTPUT
-    if clicked is input_button:
-        return ExistingOutputChoice.INPUT
-    return ExistingOutputChoice.CANCEL
-
-
 def ask_external_change(parent: QWidget, output_path: Path) -> ExternalChangeChoice:
     box = QMessageBox(parent)
-    box.setWindowTitle("外部変更を検出")
+    box.setWindowTitle("出力画像の外部変更")
     box.setIcon(QMessageBox.Icon.Warning)
-    box.setText(f"出力画像が外部で変更されている。\n{output_path}")
-    reload_button = box.addButton("外部版を開く", QMessageBox.ButtonRole.ActionRole)
-    overwrite = box.addButton("現在内容で上書き", QMessageBox.ButtonRole.DestructiveRole)
-    cancel = box.addButton("操作中止", QMessageBox.ButtonRole.RejectRole)
+    box.setText("出力画像は読み込み後に外部変更されています。")
+    box.setInformativeText(
+        "外部版を開くと未保存の編集を破棄します。現在内容で置換すると、"
+        f"外部版は元に戻せません。\n\n{output_path}"
+    )
+    reload_button = box.addButton(
+        "外部版を開いて編集を破棄",
+        QMessageBox.ButtonRole.ActionRole,
+    )
+    overwrite = box.addButton("現在内容で外部版を置換", QMessageBox.ButtonRole.DestructiveRole)
+    cancel = box.addButton("中止", QMessageBox.ButtonRole.RejectRole)
     box.setDefaultButton(cancel)
     box.exec()
     clicked = box.clickedButton()
@@ -290,10 +271,13 @@ def ask_input_change(
     """読込元が外部変更された際、現在編集の扱いを明示させる。"""
 
     box = QMessageBox(parent)
-    box.setWindowTitle("読込元の外部変更を検出")
+    box.setWindowTitle("読込元の外部変更")
     box.setIcon(QMessageBox.Icon.Warning)
     rendered = "\n".join(str(path) for path in changed_paths)
-    box.setText(f"原画像または入力三値画像が読込後に変更されている。\n{rendered}")
+    box.setText(
+        "原画像または入力三値画像は読み込み後に外部変更されています。"
+        f"\n\n{rendered}"
+    )
     reload_button = box.addButton(
         "再読込して現在編集を破棄",
         QMessageBox.ButtonRole.DestructiveRole,
@@ -302,35 +286,42 @@ def ask_input_change(
         "読込済み内容を確認して保存",
         QMessageBox.ButtonRole.ActionRole,
     )
-    cancel = box.addButton("操作中止", QMessageBox.ButtonRole.RejectRole)
+    cancel = box.addButton("中止", QMessageBox.ButtonRole.RejectRole)
     box.setDefaultButton(cancel)
     box.exec()
     clicked = box.clickedButton()
     if clicked is reload_button:
         return InputChangeChoice.RELOAD_DISCARD
     if clicked is snapshot_button:
-        confirm = QMessageBox.warning(
-            parent,
-            "読込済み内容で保存",
-            "外部で更新された読込元ではなく、現在メモリ上のスナップショットを保存する。"
-            "本当に続けるか。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+        confirm = QMessageBox(parent)
+        confirm.setWindowTitle("現在内容の保存確認")
+        confirm.setIcon(QMessageBox.Icon.Warning)
+        confirm.setText("現在の編集内容を保存します。")
+        confirm.setInformativeText(
+            "外部変更後の読込元は取り込まず、読み込み時点の内容を使用します。"
         )
-        if confirm == QMessageBox.StandardButton.Yes:
+        save = confirm.addButton("現在内容を保存", QMessageBox.ButtonRole.AcceptRole)
+        cancel = confirm.addButton("中止", QMessageBox.ButtonRole.RejectRole)
+        confirm.setDefaultButton(cancel)
+        confirm.setEscapeButton(cancel)
+        confirm.exec()
+        if confirm.clickedButton() is save:
             return InputChangeChoice.SAVE_SNAPSHOT
     return InputChangeChoice.CANCEL
 
 
 def confirm_overwrite(parent: QWidget, output_path: Path) -> bool:
-    result = QMessageBox.warning(
-        parent,
-        "既存出力を置換",
-        f"既存の編集済み画像を置換する。続けるか。\n{output_path}",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-        QMessageBox.StandardButton.Cancel,
-    )
-    return result == QMessageBox.StandardButton.Yes
+    box = QMessageBox(parent)
+    box.setWindowTitle("既存出力の置換確認")
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setText("既存の編集済み画像を置換します。")
+    box.setInformativeText(f"既存画像は元に戻せません。\n\n{output_path}")
+    overwrite = box.addButton("置換して保存", QMessageBox.ButtonRole.DestructiveRole)
+    cancel = box.addButton("中止", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(cancel)
+    box.setEscapeButton(cancel)
+    box.exec()
+    return box.clickedButton() is overwrite
 
 
 def show_error(parent: QWidget, title: str, message: str) -> None:
