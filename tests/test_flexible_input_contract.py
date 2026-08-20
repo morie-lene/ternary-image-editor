@@ -723,6 +723,96 @@ def test_existing_output_is_automatically_preferred_without_source_confirmation(
         window.close()
 
 
+def test_direct_open_pair_without_source_uses_output_priority(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    input_labels = np.zeros((3, 4), dtype=np.uint8)
+    output_labels = np.full((3, 4), 2, dtype=np.uint8)
+    folders = _make_natural_folders(
+        tmp_path / "direct-auto-source",
+        [input_labels, input_labels],
+        outputs={0: output_labels},
+    )
+    window = _make_contract_window(qtbot, tmp_path)
+    try:
+        window.configure_folders(
+            *folders,
+            pairing_mode=PairingMode.NATURAL_ORDER,
+            natural_order_confirmed=True,
+        )
+
+        assert window.open_pair(0)
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, output_labels)
+
+        assert window.open_pair(0, EditSource.INPUT)
+        assert window.session.edit_source is EditSource.INPUT
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, input_labels)
+
+        assert window.open_pair(1)
+        assert window.session.edit_source is EditSource.INPUT
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, input_labels)
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_cold_start_auto_opens_first_strict_pair_from_existing_output(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_dir = tmp_path / "cold-start" / "original"
+    ternary_dir = tmp_path / "cold-start" / "ternary"
+    output_dir = tmp_path / "cold-start" / "output"
+    suffix = "cold-start-output-priorityx"
+    assert len(suffix) == 27
+    original_name = f"①{suffix}.png"
+    ternary_name = f"001{suffix}.jpg"
+    output_name = f"001{suffix}.png"
+    output_labels = np.full((3, 4), 2, dtype=np.uint8)
+    _save_image(
+        original_dir / original_name,
+        np.full((3, 4, 3), 80, dtype=np.uint8),
+        image_format="PNG",
+    )
+    _save_image(
+        ternary_dir / ternary_name,
+        np.full((3, 4, 3), 127, dtype=np.uint8),
+        image_format="JPEG",
+    )
+    _save_label_png(output_dir / output_name, output_labels, rgb=True)
+    settings = QSettings(str(tmp_path / "cold-start.ini"), QSettings.Format.IniFormat)
+    settings.setValue("folders/original", str(original_dir))
+    settings.setValue("folders/ternary", str(ternary_dir))
+    settings.setValue("folders/output", str(output_dir))
+    settings.setValue("pairing/mode", PairingMode.STRICT_KEY.value)
+
+    monkeypatch.setattr(
+        main_window_module,
+        "confirm_ternary_jpeg_import",
+        lambda *_args: pytest.fail("正常な既存出力の再開時はJPEG確認を出してはならない"),
+    )
+    window = MainWindow(settings=settings)
+    window._request_components = lambda: None
+    qtbot.addWidget(window)
+    window.show()
+    QApplication.processEvents()
+    try:
+        assert window.current_index == 0
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert window.session.has_saved_current
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, output_labels)
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
 def test_existing_output_bypasses_jpeg_confirmation_and_quantization(
     qtbot,
     tmp_path: Path,
@@ -1740,7 +1830,7 @@ def test_accepted_output_fallback_is_not_reconfirmed_for_same_snapshot(
             lambda *_args: pytest.fail("受理済みfallbackで追加modalを出してはならない"),
         )
 
-        assert window.open_pair(0, EditSource.OUTPUT)
+        assert window.open_pair(0)
         assert window.session.edit_source is EditSource.INPUT
         window.request_open_index(1)
         assert window.current_index == 1
@@ -1858,7 +1948,7 @@ def test_transient_open_failure_is_reported_but_not_cached_as_pair_error(
             lambda _parent, title, message: error_shown.append((title, message)),
         )
 
-        assert not window.open_pair(0, EditSource.OUTPUT)
+        assert not window.open_pair(0)
 
         assert 0 not in window._pair_errors
         assert window.image_list.count() == 1
@@ -1915,7 +2005,7 @@ def test_cancelled_output_fallback_has_exactly_one_error_notification(
             lambda _parent, title, message: notifications.append((title, message)),
         )
 
-        assert not window.open_pair(0, EditSource.OUTPUT)
+        assert not window.open_pair(0)
 
         assert 0 not in window._pair_errors
         assert len(notifications) == 1

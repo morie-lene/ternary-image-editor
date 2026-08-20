@@ -2,7 +2,7 @@
 
 ## 基線
 
-- 応用版: `0.6.0`
+- 応用版: `0.6.1`
 - 基線要求正本: `TIE-SPEC-001` version 1.5
 - 基線SHA-256: `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`
 - 限定追補: `TIE-ADD-FLEX-001` version 1.2
@@ -40,6 +40,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP9 | 参照原画像の受付緩和、既存出力の自動優先、確認・診断文の整理 | WP1、WP5、WP8 | FLEX-AT-010〜011、界面回帰、全局所検査、Windows判断門 |
 | WP10 | 選択ラベル源の分離、保存済み出力再開、fallback snapshot、通知・cache寿命、選択源別保存基準 | WP1、WP3、WP5、WP9 | FLEX-AT-012〜016、全局所検査、Windows判断門 |
 | WP11 | 比較（暗）の原解像度表示切替、操作台帳、設定永続化、追補・公開試験・包装同期 | WP4〜WP7、WP10 | DISP-CMP-001〜008、公開表示契約試験、全局所検査、Windows判断門 |
+| WP12 | 編集元省略入口の保存済み出力優先、厳格冷間起動回帰、版追跡 | WP10、WP11 | FLEX-AT-012〜015、公開入力契約試験、全局所検査、Windows判断門 |
 
 ## 現在状態
 
@@ -57,6 +58,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP9 | completed-local-with-residual | 原画像の表示正規化、既存出力の無対話優先、入力JPEG確認の実編集元限定、界面文の整理を実装。全376試験、Ruff、依存固定検査、版0.5.0 sdist/wheel、画面外GUI煙試験が成功。Windows実画面と実データによる受理はpending |
 | WP10 | completed-local-with-residual | 選択源境界と回帰試験を版0.5.1へ実装。追補version 1.2の固定hash同期後に全410試験、公開66試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験が成功。Windows実画面と実データによる受理はpending |
 | WP11 | completed-local-with-residual | 比較（暗）の描画、常設チェック欄、39件目の操作、schema 2設定、公開契約試験、追補version 1.0、包装を版0.6.0へ統合。全415試験、公開71試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験と三系統の独立査読が成功。Windows実画面と実データによる受理はpending |
+| WP12 | completed-local-with-residual | `open_pair`の編集元省略時だけ既存の自動選択規則を適用し、明示INPUT/OUTPUTを維持。厳格名＋JPEG入力＋正常出力の冷間起動、不正出力fallback、出力なしを公開回帰へ追加。全417試験、公開73試験、Ruff、依存固定、差分形式、sdist/wheelが成功。通常GUI経路は修正前から局所成功しており、利用現場のWindows実データによる元報告の単独原因確認はpending |
 
 ## 変更統制
 
@@ -71,7 +73,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 - 新しい認証、認可、秘密情報、network通信、telemetry、外部log出力は追加しない。入力は読取専用、
   書込先は既存の明示保存で指定した出力PNGと協調lockに限る。
 - 依存package集合を追加・削除せず、既存のPillow `ImageCms`、NumPy、Qtを使う。
-  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.6.0`へ同期する。Windows配布候補では
+  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.6.1`へ同期する。Windows配布候補では
   同梱された色管理経路を別途実機確認する。
 - 永続設定には列挙型の対応方式と、既定falseの比較（暗）真偽値だけを加える。対応方式の不明・破損値は
   厳格対応へ、比較（暗）の欠損・破損値はfalseへ戻す。自然順の対応表に対する確認結果とJPEG一件ごとの
@@ -102,5 +104,8 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
    版0.6.0は表示比較追補version 1.0の固定hash同期後に全415試験、公開71試験、Ruff、依存固定、
    差分形式、sdist/wheel、画面外GUI煙試験、独立画素・状態・性能probe、三系統の独立査読の成功を
    `local-verification-2026-08-19-display-comparison.md`へ記録した。
+   版0.6.1は編集元省略入口の出力優先と厳格冷間起動を固定し、全417試験、公開73試験、Ruff、
+   依存固定、差分形式、sdist/wheelの成功を
+   `local-verification-2026-08-19-output-resume-entrypoint.md`へ記録した。
 3. 最終受理: Windows実機、高DPI、実データ、性能、配布物起動、PTR-AT-011、柔軟入力追補、
    表示比較（暗）追補を人間が確認するまで `pending`。
