@@ -10,7 +10,7 @@ PNGとして別保存するWindows向けデスクトップGUI。
 
 | 項目 | 状態 |
 | --- | --- |
-| アプリケーション版 | `0.6.0` |
+| アプリケーション版 | `0.6.1` |
 | 対象環境 | Windows 10 / 11 64-bit |
 | ソース実行環境 | Python 3.11.x、`uv` |
 | 提供形態 | ソース実行、Windows配布候補のローカル構築 |
@@ -158,6 +158,7 @@ uv build
   件数門停止では旧セッション、対応一覧、フォルダ、出力先を変えないこと。出力probeは読込preflight、
   JPEG確認、未保存判断の後だけに行う。
 - 正常出力の再開では未使用入力を復号・検査・保存基準にせず、入力版を選んだ時だけ厳格検査すること。
+  起動時再読込と編集元を省略した直接入口でも同じ優先規則を使い、正常出力がなければ入力版へ戻ること。
 - 原画像の表示方向反映後寸法と選択ラベル源の完全一致、ラベルPNGのOrientation 2〜8拒否。
 - 事前走査・前後移動の無通知skip、直接指定の一回通知、全候補失敗時の理由集約、fallback許可の
   出力snapshot寿命、一時的な出力失敗・分類不能例外の非恒久cache化。
@@ -178,6 +179,8 @@ PyInstaller成果物の妥当性、Windows上の実行ファイル起動を証�
 版0.5.1は全410件、公開66件、Ruff、依存固定、差分形式、sdist/wheel構築、画面外GUI煙試験が成功した。
 版0.6.0は全415件、公開71件、Ruff、依存固定、差分形式、sdist/wheel構築、画面外GUI煙試験が成功し、
 実装、動的挙動、文書・包装の三系統の独立査読でも未解決欠陥を検出しなかった。
+版0.6.1は、編集元を省略した直接入口にも保存済み出力優先を適用し、厳格対応の冷間起動を含む
+全417件、公開73件、Ruff、依存固定、差分形式、sdist/wheel構築が成功した。
 Windows固有事項は
 [Windows最終受入チェックリスト](docs/windows-acceptance-checklist.md)で人間が判定する。
 
@@ -237,6 +240,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\work\ternary-image-edito
 | [参照原画像・編集元優先・界面文ローカル検証記録](docs/local-verification-2026-08-19-reference-source-ui.md) | 版0.5.0の376試験、静的検査、包装、画面外起動と未完了境界 |
 | [保存済み出力再開・選択源境界ローカル検証記録](docs/local-verification-2026-08-19-output-resume.md) | 版0.5.1の410試験、公開66試験、静的検査、包装、画面外起動と未完了境界 |
 | [表示比較（暗）ローカル検証記録](docs/local-verification-2026-08-19-display-comparison.md) | 版0.6.0の415試験、公開71試験、独立画素・状態・性能probe、包装、画面外起動と未完了境界 |
+| [保存済み出力優先入口ローカル検証記録](docs/local-verification-2026-08-19-output-resume-entrypoint.md) | 版0.6.1の417試験、公開73試験、省略入口・厳格冷間起動、包装と未完了境界 |
 | [Windows最終受入チェックリスト](docs/windows-acceptance-checklist.md) | Windows実機の結果を記録し、人間が配布可否を決める表 |
 
 v1.5仕様書のSHA-256は

@@ -336,11 +336,24 @@ class MainWindow(QMainWindow):
         self._install_pairing(result, (original_dir, ternary_dir, output_dir))
         return result
 
-    def open_pair(self, index: int, source: EditSource = EditSource.INPUT) -> bool:
-        """指定画像対を開く。競合中は ``BusyError`` を送出する。"""
+    def open_pair(
+        self,
+        index: int,
+        source: EditSource | None = None,
+    ) -> bool:
+        """指定画像対を開く。編集元省略時は正常な既存出力を優先する。
+
+        競合中は ``BusyError`` を送出する。
+        """
 
         self._ensure_direct_transition_allowed()
-        return self._open_pair(index, source)
+        if source is None:
+            if not 0 <= index < len(self._pairs):
+                return False
+            resolved_source = self._choose_edit_source(self._pairs[index], index)
+        else:
+            resolved_source = source
+        return self._open_pair(index, resolved_source)
 
     def _ensure_direct_transition_allowed(self) -> None:
         """試験・埋込み用の直接入口にも通常GUIと同じ排他境界を課す。"""

@@ -12,7 +12,7 @@
 version 1.0、SHA-256:
 `26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`）が表示合成・表示設定・
 操作件数だけを限定上書きする。v1.5のHTMLとhashは変更しない。
-この追跡表の現行対象応用版は `0.6.0`。
+この追跡表の現行対象応用版は `0.6.1`。
 
 状態語は次の意味に限る。
 
@@ -60,6 +60,13 @@ sdist/wheel構築、`expected_size=None`の画面外GUI起動が成功したこ�
 GUI起動、独立動的probe、三系統の独立査読が成功したことである。詳細は
 [表示比較（暗）ローカル検証記録](local-verification-2026-08-19-display-comparison.md)に分離する。
 この局所成功はWindows描画器、実機入力、性能、配布受理を閉じない。
+
+版0.6.1の局所統合証拠は同日のmacOS作業木で、編集元省略入口の保存済み出力優先と厳格対応の
+冷間起動回帰に対して全417試験、公開73試験、Ruff、依存固定、差分形式、sdist/wheel構築が成功した
+ことである。詳細は
+[保存済み出力優先入口ローカル検証記録](local-verification-2026-08-19-output-resume-entrypoint.md)に
+分離する。通常GUIの冷間起動は修正前から局所成功しており、この修正だけからWindows実データでの
+元報告の単独原因だったとは導出しない。
 
 ## v1.1から継続する受入条件
 
@@ -132,7 +139,8 @@ GUI起動、独立動的probe、三系統の独立査読が成功したことで
 だが、各行に記した未試験経路とWindows受理を閉じない。版0.5.0までの局所証拠は2026-08-19
 （Asia/Tokyo）のmacOS作業木で
 `QT_QPA_PLATFORM=offscreen uv run pytest -q tests/test_flexible_input_contract.py`を実行した28件成功である。
-版0.5.1では同じ公開契約試験62件、包装試験と合わせた公開二試験66件が成功した。
+版0.5.1では同じ公開契約試験62件、包装試験と合わせた公開二試験66件が成功した。版0.6.1では
+公開入力契約試験64件、表示比較契約5件、包装契約4件の計73件が成功した。
 
 フォルダ変更、再走査、起動時再読込は、候補画像を現在とは別の`ImageSession`へpreflightし、成功後に
 だけ対応一覧とセッションを一括導入する。版0.5.0までの公開試験は、JPEG取消、無効PNGから後続JPEG取消、
@@ -154,7 +162,7 @@ GUI起動、独立動的probe、三系統の独立査読が成功したことで
 | FLEX-AT-009 | `H>100`末尾100行、`H<=100`保護なしを全経路で共有する | `constants.py`, `image_io.py`, `operations.py`, `canvas.py`, `main_window.py` | 公開試験`test_dynamic_protected_start_normalization_and_operations`が`H=80/100/101/1536`、正規化、塗りを検証。筆・境界・解析・保存の全経路は既存回帰との組合せ証拠 | implemented / automated-partial |
 | FLEX-AT-010 | 参照原画像は復号可能性を門とし、表示用RGB化、ICC退避、Orientation反映後寸法照合を行い、入力を変更しない | `image_io.py` | 公開試験`test_original_reference_normalizes_decodable_encodings_without_writing`、`test_original_reference_uses_exif_transposed_dimensions_without_writing`、`test_original_reference_still_rejects_undecodable_data_without_writing` | implemented / automated-local |
 | FLEX-AT-011 | version 1.1の既存出力自動優先と入力JPEG確認抑止。version 1.2の選択源分離は証明しない | `session.py`, `main_window.py`, `dialogs.py` | 公開試験`test_existing_output_is_automatically_preferred_without_source_confirmation`、`test_existing_output_bypasses_jpeg_confirmation_and_quantization`を履歴証拠として保持 | superseded / automated-local (version 1.1) |
-| FLEX-AT-012 | 対応付けの非零同数を維持し、正常出力を選んだ編集用画像対では未使用入力を復号・検査せず、入力選択時は厳格検査する | `session.py`, `main_window.py`, `image_io.py` | `test_output_resume_ignores_invalid_input_for_open_and_later_save`、`test_input_open_keeps_strict_validation_when_valid_output_exists`、`test_gui_auto_prefers_valid_output_when_unused_input_is_invalid` | implemented / automated-local |
+| FLEX-AT-012 | 対応付けの非零同数を維持し、正常出力を選んだ編集用画像対では未使用入力を復号・検査せず、入力選択時は厳格検査する | `session.py`, `main_window.py`, `image_io.py` | `test_output_resume_ignores_invalid_input_for_open_and_later_save`、`test_input_open_keeps_strict_validation_when_valid_output_exists`、`test_gui_auto_prefers_valid_output_when_unused_input_is_invalid`、`test_direct_open_pair_without_source_uses_output_priority`、`test_cold_start_auto_opens_first_strict_pair_from_existing_output` | implemented / automated-local |
 | FLEX-AT-013 | 原画像のEXIF表示方向反映後寸法と選択ラベル源を幅・高さ完全一致で照合し、ラベルPNGのOrientation 2〜8を拒否する | `image_io.py`, `session.py` | `test_output_resume_compares_output_with_display_oriented_original_only`、`test_output_resume_requires_exact_width_and_height`、`test_label_png_with_orientation_is_rejected_without_auto_rotation` | implemented / automated-local |
 | FLEX-AT-014 | preflight・前後移動は不正候補をmodalなしで飛ばし、全候補失敗時は理由を状態表示へ集約し、直接指定は一回通知する。出力由来・分類不能の失敗を恒久的な画像対cacheへ入れない | `main_window.py`, `errors.py` | `test_folder_preflight_skips_invalid_pair_without_modal_error`、`test_preflight_reports_every_failure_in_status_when_no_pair_is_usable`、`test_directional_navigation_skips_invalid_pair_without_modal_error`、`test_preflight_skips_output_and_unknown_failures_without_modal`、`test_directional_navigation_skips_output_and_unknown_failures_without_modal`、`test_direct_invalid_pair_reports_target_once`、`test_transient_open_failure_is_reported_but_not_cached_as_pair_error`、`test_cancelled_output_fallback_has_exactly_one_error_notification` | implemented / automated-local |
 | FLEX-AT-015 | fallback許可を出力snapshotへ結び付け、同じsnapshotでは再確認せず、変更後に再検査し、正常ならOUTPUTへ戻す | `main_window.py`, `image_io.py` | `test_accepted_output_fallback_is_not_reconfirmed_for_same_snapshot`、`test_accepted_output_fallback_is_invalidated_after_output_replacement` | implemented / automated-local |
