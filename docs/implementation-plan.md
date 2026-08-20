@@ -2,16 +2,16 @@
 
 ## 基線
 
-- 応用版: `0.6.1`
+- 応用版: `0.7.0`
 - 基線要求正本: `TIE-SPEC-001` version 1.5
 - 基線SHA-256: `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`
-- 限定追補: `TIE-ADD-FLEX-001` version 1.2
-- 限定追補SHA-256: `a2d8a8c1c1c6202a770bac69f14f5cfed71f8f1428e9ffee49b4a06875849798`
+- 限定追補: `TIE-ADD-FLEX-001` version 1.3
+- 限定追補SHA-256: `ce148618e7cf049cbfe2fa13e00fc4f3cb17b4726c4bf8e878bd63edcbb6255c`
 - 限定追補: `TIE-ADD-PTR-001` version 1.0
 - 限定追補SHA-256: `91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`
 - 限定追補: `TIE-ADD-DISP-CMP-001` version 1.0
 - 限定追補SHA-256: `26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`
-- 範囲: v1.5の必須事項、`AT-001`〜`AT-079`、`FLEX-AT-001`〜`FLEX-AT-016`、
+- 範囲: v1.5の必須事項、`AT-001`〜`AT-079`、`FLEX-AT-001`〜`FLEX-AT-018`、
   `PTR-AT-001`〜`PTR-AT-011`、`DISP-CMP-001`〜`DISP-CMP-008`
 - 非目的: v1.5 19節の対象外。ただし柔軟入力・対応付けは`TIE-ADD-FLEX-001`、マウス入力割当は
   `TIE-ADD-PTR-001`、表示比較（暗）は`TIE-ADD-DISP-CMP-001`が各限定範囲を上書きし、各追補の
@@ -41,6 +41,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP10 | 選択ラベル源の分離、保存済み出力再開、fallback snapshot、通知・cache寿命、選択源別保存基準 | WP1、WP3、WP5、WP9 | FLEX-AT-012〜016、全局所検査、Windows判断門 |
 | WP11 | 比較（暗）の原解像度表示切替、操作台帳、設定永続化、追補・公開試験・包装同期 | WP4〜WP7、WP10 | DISP-CMP-001〜008、公開表示契約試験、全局所検査、Windows判断門 |
 | WP12 | 編集元省略入口の保存済み出力優先、厳格冷間起動回帰、版追跡 | WP10、WP11 | FLEX-AT-012〜015、公開入力契約試験、全局所検査、Windows判断門 |
+| WP13 | 外部由来出力PNGの限定復旧、同一snapshot検査、preflight入力退避 | WP10、WP12 | FLEX-AT-017〜018、非破壊・保存正規化・通知・回帰試験、Windows判断門 |
 
 ## 現在状態
 
@@ -59,6 +60,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP10 | completed-local-with-residual | 選択源境界と回帰試験を版0.5.1へ実装。追補version 1.2の固定hash同期後に全410試験、公開66試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験が成功。Windows実画面と実データによる受理はpending |
 | WP11 | completed-local-with-residual | 比較（暗）の描画、常設チェック欄、39件目の操作、schema 2設定、公開契約試験、追補version 1.0、包装を版0.6.0へ統合。全415試験、公開71試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験と三系統の独立査読が成功。Windows実画面と実データによる受理はpending |
 | WP12 | completed-local-with-residual | `open_pair`の編集元省略時だけ既存の自動選択規則を適用し、明示INPUT/OUTPUTを維持。厳格名＋JPEG入力＋正常出力の冷間起動、不正出力fallback、出力なしを公開回帰へ追加。全417試験、公開73試験、Ruff、依存固定、差分形式、sdist/wheelが成功。通常GUI経路は修正前から局所成功しており、利用現場のWindows実データによる元報告の単独原因確認はpending |
+| WP13 | completed-local-with-residual | 外部由来出力PNGの同一snapshot strict-first限定復旧、非破壊三値化、`OUTPUT`未保存状態、明示保存正規化、復旧不能出力からの三preflight入口INPUT退避、有効ICC用sample展開、IEND終端検査、直接fallbackの内容指紋束縛を版0.7.0へ実装。明示INPUT/OUTPUTの互換境界も維持した。全456試験、公開100試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験が成功。Windows実画面、実外部生成器PNG、実物ICCによる受理はpending |
 
 ## 変更統制
 
@@ -73,7 +75,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 - 新しい認証、認可、秘密情報、network通信、telemetry、外部log出力は追加しない。入力は読取専用、
   書込先は既存の明示保存で指定した出力PNGと協調lockに限る。
 - 依存package集合を追加・削除せず、既存のPillow `ImageCms`、NumPy、Qtを使う。
-  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.6.1`へ同期する。Windows配布候補では
+  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.7.0`へ同期する。Windows配布候補では
   同梱された色管理経路を別途実機確認する。
 - 永続設定には列挙型の対応方式と、既定falseの比較（暗）真偽値だけを加える。対応方式の不明・破損値は
   厳格対応へ、比較（暗）の欠損・破損値はfalseへ戻す。自然順の対応表に対する確認結果とJPEG一件ごとの
@@ -107,5 +109,9 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
    版0.6.1は編集元省略入口の出力優先と厳格冷間起動を固定し、全417試験、公開73試験、Ruff、
    依存固定、差分形式、sdist/wheelの成功を
    `local-verification-2026-08-19-output-resume-entrypoint.md`へ記録した。
+   版0.7.0は外部由来出力のstrict-first限定復旧、三preflight入口のINPUT退避、ICC sample展開、
+   IEND終端検査、直接fallbackの内容指紋束縛、明示source保持を固定し、全456試験、公開100試験、Ruff、依存固定、
+   差分形式、sdist/wheel、画面外GUI煙試験の成功を
+   `local-verification-2026-08-20-external-output-recovery.md`へ記録した。
 3. 最終受理: Windows実機、高DPI、実データ、性能、配布物起動、PTR-AT-011、柔軟入力追補、
    表示比較（暗）追補を人間が確認するまで `pending`。

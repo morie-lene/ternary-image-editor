@@ -67,10 +67,13 @@
 | JPEG三値化・decision.flex.jpeg-nearest-save-rgb | adopted | ICC後sRGBで`SAVE_RGB`とのRGB二乗距離最小へ割り当て、同距離は小ラベルを採る。dither・自動閾値を使わない | 再現可能な変換とする。圧縮前ラベルの復元保証はせず、警告取消を既定にする |
 | JPEG保存境界・decision.flex.jpeg-explicit-png-save | adopted | JPEG入力を不変に保ち、取込直後を未保存とし、明示保存だけで検証済みRGB PNGを出力する | 取込許可と入力書換権限を混同しない。入力hash変化があれば差戻す |
 | 原画像参照境界・decision.flex.original-display-normalization | adopted | 対応拡張子の原画像は復号可能性だけを門とし、Orientation反映、ICCのbest-effort sRGB化、通常RGB退避をメモリ上で行う | 参照画像へ三値画像の厳格色契約を誤適用しない。入力書換えまたは寸法の暗黙変形があれば差戻す |
-| 選択ラベル源境界・decision.flex.selected-label-source-boundary | adopted | 対応付けは原・入力の非零同数を維持し、編集用画像対は原画像と選択したINPUTまたはOUTPUTだけで作る。正常なOUTPUTを自動優先し、未選択入力は復号・検査しない | 対応付けの候補根拠と実編集データを混同しない。OUTPUT再開が未使用入力の内容に依存したら差戻す |
+| 選択ラベル源境界・decision.flex.selected-label-source-boundary | adopted | 対応付けは原・入力の非零同数を維持し、編集用画像対は原画像と選択したINPUTまたはOUTPUTだけで作る。厳格受理または限定復旧できるOUTPUTを自動優先し、未選択入力は復号・検査しない | 対応付けの候補根拠と実編集データを混同しない。OUTPUT再開が未使用入力の内容に依存したら差戻す |
 | 選択源寸法・decision.flex.selected-label-orientation-size | adopted | 原画像のEXIF表示方向反映後寸法と選択ラベル源を幅・高さ完全一致で照合する。ラベルPNGはOrientationなし／1だけを許し、2〜8を拒否する | ラベルを暗黙転置せず、表示・編集・保存の画素座標を一意にする。未選択入力の寸法検査または暗黙resizeがあれば差戻す |
-| fallback snapshot・decision.flex.output-fallback-snapshot | adopted | 不正出力からINPUTへ切り替える許可を出力snapshotに結び付け、同じsnapshotでは再確認せず、変更時だけ再検査する | 許可を永続path権限へ格上げせず、同一内容への反復確認も避ける。変更後に旧許可を流用したら差戻す |
-| 読込失敗範囲・decision.flex.open-error-scope | adopted | preflightと前後移動は不正候補をmodalなしで飛ばし、直接指定だけ一回通知する。出力由来・分類不能の失敗は恒久的な画像対cacheへ入れない | 一件の一時的出力失敗で画像対全体を失わず、探索中のmodal連打を避ける。再試行不能または重複通知があれば差戻す |
+| 出力strict-first snapshot・decision.flex.output-strict-first-snapshot | adopted | 一回取得した同じ出力snapshotへ厳格検査を先に適用し、厳格失敗時だけ限定復旧を判定する。別snapshotの再読込でstrict-firstを装わない | 正常出力を量子化せず、復旧判定と保存競合証拠を同じ内容へ結び付ける。正常出力が未保存になる、または判定途中の別内容を採ったら差戻す |
+| 回復OUTPUT非破壊・decision.flex.output-recovery-nondestructive | adopted | 許可mode・bit depth・同寸・Orientationなし／1・実使用画素alpha全255・IEND終端を満たす実PNGだけを、ICC色空間に合うRGB/L sampleへ展開してbest-effort sRGB後に共通最近傍規則でメモリ上三値化し、OUTPUT源の未保存状態で開く。明示保存だけが同pathを厳格RGB三値PNGへ置換する | 外部生成器との限定互換を得ても、入力源や元出力への読込時書込権限へ広げない。読込だけでhashが変わる、INPUT扱いになる、無変更扱いになる、またはmode不一致で有効ICCを黙って退避したら差戻す |
+| fallback snapshot・decision.flex.output-fallback-snapshot | adopted | 限定復旧もできない出力を直接指定した時、失敗時の内容指紋を例外から引継ぎ、INPUT切替許可を索引ではなくそのsnapshotへ結び付ける。modal前後を再照合し、INPUTは仮sessionへ読み、確定直前にも同一性を検査する。変更時は有限回だけOUTPUTを再検査する | 許可を永続path権限やpreflight退避へ格上げせず、同一内容への反復確認も避ける。失敗後・確認中・仮INPUT読込中の変更へ旧許可を流用したら差戻す |
+| preflight入力退避・decision.flex.preflight-input-retreat | adopted | 起動・フォルダ選択・再走査preflightは復旧不能OUTPUTの同じ対でINPUTをfallback modalなしに試し、INPUT JPEG確認は維持する。直接指定はsnapshot確認、前後移動はmodalなしskipを維持する | 自動退避を全経路の黙示許可へ広げず、最初に開ける同じ対を救う。直接指定の確認消失、JPEG無確認取込、前後移動のINPUT自動退避があれば差戻す |
+| 読込失敗範囲・decision.flex.open-error-scope | adopted | preflightは復旧不能OUTPUTの同じ対でINPUTを試してから候補を飛ばし、前後移動は不正候補をmodalなしで飛ばし、直接指定だけ一回通知する。出力由来・分類不能の失敗は恒久的な画像対cacheへ入れない | 一件の一時的出力失敗で画像対全体を失わず、探索中のmodal連打を避ける。経路別退避が混同される、再試行不能になる、または重複通知があれば差戻す |
 | 保存源基準・decision.flex.save-source-baseline | adopted | 保存前は原画像、選択ラベル源、出力先snapshotだけを再検査する。OUTPUT再開では未使用入力を基準にせず、INPUT開始では入力の厳格基準を保つ | 未使用入力の変更・破損で保存済み作業を閉じ込めない。入力源開始の変更検出または出力競合検査を失ったら差戻す |
 | 下端保護・decision.flex.protected-bottom-by-height | adopted | `H>100`は末尾100行、`H<=100`は保護なしとし、読込・編集・解析・保存で同じ算出規則を使う | 小画像全域を編集不能にせず、通常画像では従来の末尾100行を保つ。`H=100/101`境界の不一致があれば差戻す |
 
@@ -125,8 +128,10 @@
 | Windowsポインタevent差・risk.pointer.windows-event-semantics | token正規化、Canvas限定、button解放・応用非活性化・設定適用によるHOLD解除を局所自動検証。FocusOut・UngrabMouseは実装証拠まで | Back/Forwardの機器差、precision touchpadの分割・inertia、modal中release、schema 0/1実設定保持 | Windows PTR-AT-011を実施し、未解放または過剰起動があれば配布を止める |
 | 自然順誤対応・risk.flex.natural-order-mispair | 全対応表を導入前に毎回表示し、取消を既定とする | 同じ位置に並んだ画像内容が正しい対であることは自動証明しない | 実データ全行を人間が照合し、不明な行があれば自然順を受理しない |
 | JPEG情報喪失・risk.flex.jpeg-label-recovery | 変換式を固定し、JPEG一件ごとに不可逆変換を警告し、入力を不変に保つ | JPEG圧縮前のラベルと最近傍三値化後のラベルが一致すること | 変換後を原画像と目視比較し、必要なら編集してから明示保存する |
+| 外部出力量子化・risk.flex.external-output-label-recovery | 同一snapshotをstrict-firstで判定し、復旧時は決定的最近傍規則、元出力不変、OUTPUT源の未保存状態を維持する | 外部生成器が意図した元ラベルと量子化後ラベルが一致すること | 復旧表示を原画像および作成元と照合し、不明な画素があれば明示保存しない |
 | 任意寸法資源量・risk.flex.unbounded-positive-size | 正寸法と復号器の過大画像防護を維持し、性能例を実測する | 明示的な最大幅・高さを契約しておらず、極大画像の処理時間とメモリを一律保証しない | 対象業務寸法で反復測定し、上限が必要なら別要求として決める |
-| ICC変換環境差・risk.flex.icc-runtime | ICC不正を拒否し、変換後sRGBに同じ三値化式を適用する | Windows配布物の色管理ライブラリで各実ICCが同じ業務結果になること | 代表ICC付きJPEGをWindows候補で照合する |
+| ICC変換環境差・risk.flex.icc-runtime | JPEG入力はICC不正を拒否し、変換後sRGBに同じ三値化式を適用する | Windows配布物の色管理ライブラリで各実ICC付きJPEGが同じ業務結果になること | 代表ICC付きJPEGをWindows候補で照合する |
+| 復旧出力ICC退避差・risk.flex.output-recovery-icc-runtime | 復旧出力はICC変換をbest-effortとし、失敗時は通常RGBへ退避して警告状態を残す | Windows配布物と実外部生成器のICCについて、変換成功可否、退避後RGB、三値化結果、警告表示が局所環境と一致すること | 代表する実物ICC付き外部出力をWindows候補で開き、表示、警告、元hash不変、明示保存結果を人間が記録する |
 
 ## 保留中の人間判断
 
@@ -139,5 +144,5 @@
 | 非協調writer競合・decision.windows-save-race | human | 外部アプリ併用時の公開受理 | 本アプリ多重起動にはnonblocking、同一出力への非協調同時書込運用にはblocking | 競合注入結果を見て運用禁止または追加補償を選ぶ | 外部アプリ併用運用を認める前 | `requirements-traceability.md`, `windows-acceptance-checklist.md` |
 | Windowsアプリケーションアイコン受理・decision.windows-application-icon-acceptance | human | 配布物の視覚受理 | local実装にはnonblocking、配布受理にはblocking | Explorer、タスクバー、主windowを16/32pxと各DPIで確認し、同一図案か、既定アイコンへ戻っていないかを記録 | Windows候補構築後・配布判断前 | `windows-acceptance-checklist.md` |
 | Windowsポインタ割当受理・decision.windows-pointer-acceptance | human | マウス入力割当追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | PTR-AT-011の四項目を実機で記録する | Windows候補構築後・配布判断前 | `mouse-input-bindings-addendum.md`, `requirements-traceability.md` |
-| Windows柔軟入力受理・decision.windows-flexible-input-acceptance | human | 柔軟入力・対応付け追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | 自然順全表、JPEG警告・ICC、選択源別の入力不変・寸法・Orientation・fallback通知・保存基準、`H=100/101`を実機で記録する | Windows候補構築後・配布判断前 | `flexible-input-pairing-addendum.md`, `windows-acceptance-checklist.md` |
+| Windows柔軟入力受理・decision.windows-flexible-input-acceptance | human | 柔軟入力・対応付け追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | 自然順全表、JPEG警告・ICC、選択源別の入力不変・寸法・Orientation・fallback通知・保存基準、`H=100/101`に加え、外部生成器の実PNG、実物ICC、strict-first復旧、preflight INPUT退避を実機で記録する | Windows候補構築後・配布判断前 | `flexible-input-pairing-addendum.md`, `windows-acceptance-checklist.md` |
 | Windows表示比較受理・decision.windows-display-comparison-acceptance | human | 表示比較（暗）追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | Darken画素、疑似色、片層表示、各DPI、操作割当、再起動復元、保存PNG不変を実機で記録する | Windows候補構築後・配布判断前 | `display-comparison-addendum.md`, `windows-acceptance-checklist.md` |

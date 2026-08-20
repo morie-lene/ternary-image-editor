@@ -15,8 +15,8 @@ import numpy as np
 from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
 
 from .constants import (
-    JPEG_QUANTIZATION_RULE,
     SAVE_RGB,
+    SRGB_TERNARY_QUANTIZATION_RULE,
     TERNARY_JPEG_EXTENSIONS,
     protected_start_y,
 )
@@ -182,6 +182,43 @@ def load_output_image(
     )
 
 
+def load_editable_output_image(
+    path: Path,
+    *,
+    expected_size: tuple[int, int] | None = None,
+) -> LoadedLabels:
+    """既存出力を読み、外部由来の復旧可能なPNGだけ編集用に三値化する。
+
+    厳格な保存成果物はそのまま読み込む。色形式や色値だけが異なるPNGは
+    元ファイルを書き換えずにsRGB最近傍三値へ変換し、要保存状態として返す。
+    寸法、Orientation、bit depth、透明度、PNG構造の不正は救済しない。
+    """
+
+    path = Path(path)
+    data, fingerprint = _read_snapshot(path)
+    try:
+        try:
+            return _decode_label_png_snapshot(
+                data,
+                fingerprint,
+                path,
+                expected_size=expected_size,
+                require_rgb=True,
+                normalize_protected=True,
+            )
+        except ImageValidationError as strict_error:
+            return _load_recoverable_output_png(
+                data,
+                fingerprint,
+                path,
+                expected_size=expected_size,
+                recovery_reason=strict_error.reason,
+            )
+    except ImageValidationError as recovery_error:
+        recovery_error.observed_sha256 = fingerprint.sha256
+        raise
+
+
 def validate_output_png(
     path: Path,
     *,
@@ -318,6 +355,29 @@ def _load_label_png(
     require_protected_none: bool = False,
 ) -> LoadedLabels:
     data, fingerprint = _read_snapshot(path)
+    return _decode_label_png_snapshot(
+        data,
+        fingerprint,
+        path,
+        expected_size=expected_size,
+        require_rgb=require_rgb,
+        normalize_protected=normalize_protected,
+        require_protected_none=require_protected_none,
+    )
+
+
+def _decode_label_png_snapshot(
+    data: bytes,
+    fingerprint: FileFingerprint,
+    path: Path,
+    *,
+    expected_size: tuple[int, int] | None,
+    require_rgb: bool,
+    normalize_protected: bool = False,
+    require_protected_none: bool = False,
+) -> LoadedLabels:
+    """一回の内容指紋付きsnapshotを厳格な三値PNGとして復号する。"""
+
     structure = _inspect_png_bytes(data, path)
     _validate_png_structure(structure, path, expected_size=expected_size, require_rgb=require_rgb)
 
@@ -399,8 +459,152 @@ def _load_label_jpeg(
         import_report=TernaryImportReport(
             source_format="JPEG",
             quantized=True,
-            quantization_rule=JPEG_QUANTIZATION_RULE,
+            quantization_rule=SRGB_TERNARY_QUANTIZATION_RULE,
             label_counts=_label_counts(baseline_labels),
+        ),
+        requires_save=True,
+    )
+
+
+def _load_recoverable_output_png(
+    data: bytes,
+    fingerprint: FileFingerprint,
+    path: Path,
+    *,
+    expected_size: tuple[int, int] | None,
+    recovery_reason: str,
+) -> LoadedLabels:
+    """外部由来のPNGを、非破壊かつ限定的に編集可能状態へ復旧する。"""
+
+    structure = _inspect_png_bytes(data, path)
+    actual_size = (structure.width, structure.height)
+    if expected_size is not None and actual_size != expected_size:
+        raise ImageValidationError(
+            path,
+            "寸法不一致",
+            (
+                f"期待={expected_size[0]}x{expected_size[1]}",
+                f"実際={actual_size[0]}x{actual_size[1]}",
+            ),
+        )
+    if structure.bit_depth not in {1, 2, 4, 8}:
+        raise ImageValidationError(
+            path,
+            "復旧できないPNG bit depth",
+            (f"bit_depth={structure.bit_depth}",),
+        )
+
+    source_mode: str | None = None
+    try:
+        with Image.open(io.BytesIO(data)) as verifier:
+            if verifier.format != "PNG":
+                raise ImageValidationError(path, "PNGとして復号できない")
+            verifier.verify()
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            if image.format != "PNG":
+                raise ImageValidationError(path, "PNGとして復号できない")
+            source_mode = image.mode
+            if source_mode not in {"1", "L", "RGB", "P", "LA", "RGBA"}:
+                raise ImageValidationError(
+                    path,
+                    "復旧できないPNG色形式",
+                    (f"mode={source_mode}",),
+                )
+            orientation = image.getexif().get(274)
+            if orientation not in {None, 1}:
+                raise ImageValidationError(
+                    path,
+                    "Orientation 2～8の出力PNGは復旧できない",
+                    (f"orientation={orientation}",),
+                )
+
+            has_alpha = (
+                source_mode in {"LA", "RGBA"}
+                or structure.has_trns
+                or "transparency" in image.info
+            )
+            base: Image.Image = image
+            try:
+                if has_alpha:
+                    rgba = image.convert("RGBA")
+                    try:
+                        alpha_channel = rgba.getchannel("A")
+                        try:
+                            alpha = np.asarray(alpha_channel, dtype=np.uint8)
+                            if not bool(np.all(alpha == 255)):
+                                raise ImageValidationError(
+                                    path,
+                                    "透明または半透明の出力PNGは復旧できない",
+                                )
+                        finally:
+                            alpha_channel.close()
+                    finally:
+                        rgba.close()
+
+                # PNGのsample表現を、埋込みICCが規定する色空間に合うPillow modeへ
+                # 展開する。PをCMSへ直接渡すと有効なRGB profileでも失敗し、LAを
+                # RGBへ先に潰すと有効なGray profileを適用できなくなる。
+                if source_mode == "1":
+                    base = image.convert("L")
+                elif source_mode == "P":
+                    base = image.convert("RGB")
+                elif source_mode == "LA":
+                    base = image.getchannel("L")
+                elif source_mode == "RGBA":
+                    base = image.convert("RGB")
+                if base is not image and "icc_profile" in image.info:
+                    base.info["icc_profile"] = image.info["icc_profile"]
+
+                converted = _convert_original_to_srgb(
+                    base,
+                    path,
+                    strict_profile=False,
+                )
+                try:
+                    rgb = np.asarray(converted, dtype=np.uint8).copy()
+                finally:
+                    if converted is not base:
+                        converted.close()
+            finally:
+                if base is not image:
+                    base.close()
+    except ImageValidationError:
+        raise
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        ValueError,
+    ) as exc:
+        raise ImageValidationError(path, "出力PNGの復旧に失敗", (str(exc),)) from exc
+
+    if rgb.shape != (structure.height, structure.width, 3):
+        raise ImageValidationError(
+            path,
+            "復号後の寸法がPNG構造と一致しない",
+            (
+                f"IHDR={structure.width}x{structure.height}",
+                f"復号={rgb.shape[1]}x{rgb.shape[0]}",
+            ),
+        )
+    baseline_labels = quantize_srgb_to_labels(rgb)
+    labels, changed_pixels = normalized_protected_labels_copy(baseline_labels)
+    return LoadedLabels(
+        labels=labels,
+        path=path,
+        fingerprint=fingerprint,
+        baseline_labels=baseline_labels,
+        normalization=ProtectedNormalizationReport(changed_pixels=changed_pixels),
+        import_report=TernaryImportReport(
+            source_format="PNG",
+            quantized=True,
+            quantization_rule=SRGB_TERNARY_QUANTIZATION_RULE,
+            label_counts=_label_counts(baseline_labels),
+            recovered_output=True,
+            recovery_reason=recovery_reason,
+            source_mode=source_mode,
         ),
         requires_save=True,
     )
@@ -841,6 +1045,18 @@ def _inspect_png_bytes(data: bytes, path: Path) -> PngStructure:
 
         offset = next_offset
         if chunk_type == b"IEND":
+            if length != 0:
+                raise ImageValidationError(
+                    path,
+                    "PNG構造が壊れている",
+                    ("IENDの長さが0ではない",),
+                )
+            if offset != len(data):
+                raise ImageValidationError(
+                    path,
+                    "PNG構造が壊れている",
+                    ("IEND後に余剰データがある",),
+                )
             saw_iend = True
             break
 

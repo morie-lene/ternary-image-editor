@@ -2,9 +2,12 @@
 
 基線正本は `ternary_image_editor_spec_v1_5.html`（SHA-256:
 `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`）。v1.1は履歴であり、
-現在の受理根拠には用いない。柔軟入力、対応付け、参照原画像、三値JPEG、編集元優先、寸法、下端保護は
-`flexible-input-pairing-addendum.md`（`TIE-ADD-FLEX-001` version 1.2、SHA-256:
-`a2d8a8c1c1c6202a770bac69f14f5cfed71f8f1428e9ffee49b4a06875849798`）が、マウス入力割当は
+現在の受理根拠には用いない。柔軟入力、対応付け、参照原画像、三値JPEG、編集元優先、外部出力復旧、
+寸法、下端保護は`flexible-input-pairing-addendum.md`（`TIE-ADD-FLEX-001` version 1.3、SHA-256:
+`ce148618e7cf049cbfe2fa13e00fc4f3cb17b4726c4bf8e878bd63edcbb6255c`）が限定上書きする。
+version 1.2の履歴SHA-256は
+`a2d8a8c1c1c6202a770bac69f14f5cfed71f8f1428e9ffee49b4a06875849798`である。
+マウス入力割当は
 `mouse-input-bindings-addendum.md`
 （`TIE-ADD-PTR-001`、SHA-256:
 `91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`）がv1.5を限定
@@ -12,7 +15,7 @@
 version 1.0、SHA-256:
 `26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`）が表示合成・表示設定・
 操作件数だけを限定上書きする。v1.5のHTMLとhashは変更しない。
-この追跡表の現行対象応用版は `0.6.1`。
+この追跡表の現行対象応用版は `0.7.0`。
 
 状態語は次の意味に限る。
 
@@ -68,16 +71,25 @@ GUI起動、独立動的probe、三系統の独立査読が成功したことで
 分離する。通常GUIの冷間起動は修正前から局所成功しており、この修正だけからWindows実データでの
 元報告の単独原因だったとは導出しない。
 
+版0.7.0では、外部由来出力PNGのstrict-first限定復旧と、復旧不能出力から同じ対の厳格INPUTへ
+退避するpreflightを追跡対象へ加える。現在の作業木にある実装面と個別試験名は`FLEX-AT-017`、`018`
+で対応付ける。2026-08-20（Asia/Tokyo）のmacOS開発作業木では、局所統合試験456件と公開取得物へ
+収載する三公開試験ファイル計100件が成功し、柔軟入力・対応付け追補version 1.3の上記SHA-256を
+現物照合した。
+Ruff、依存固定、差分形式、sdist / wheel、画面外GUI煙試験、四規範文書hashも成功し、詳細を
+[外部出力復旧・preflight退避ローカル検証記録](local-verification-2026-08-20-external-output-recovery.md)
+へ分離した。これらの局所成功はWindows one-folder構築、exe起動、実物ICC、実業務画像の受理を閉じない。
+
 ## v1.1から継続する受入条件
 
 | 範囲 | 主な受入試験 | 実装面 | 検証面 | 状態 |
 | --- | --- | --- | --- | --- |
-| 対応付け・入力検査 | AT-001〜004、現在はFLEX-AT-001〜008で限定上書き | `pairing.py`, `image_io.py` | 旧厳格経路の`test_pairing.py`, `test_image_io.py` | implemented / automated-partial |
+| 対応付け・入力検査 | AT-001〜004、現在はFLEX-AT-001〜008、017〜018で限定上書き | `pairing.py`, `image_io.py`, `main_window.py` | 旧厳格経路と外部出力復旧・preflight退避の個別試験 | implemented / automated-partial / windows-pending |
 | GIMP合成・疑似色 | AT-005〜007 | `operations.py`, `canvas.py` | `test_operations.py`, `test_canvas.py` | implemented / automated-local |
 | 拡大・格子・筆 | AT-008〜013 | `canvas.py`, `canvas_transform.py`, `operations.py`, `history.py` | 数式・画素マスク・Qt入力統合 | implemented / automated-local |
 | 二種境界生成 | AT-014〜020 | `operations.py`, `session.py` | `test_operations.py`, `test_session.py` | implemented / automated-local |
 | 小領域検査 | AT-021〜023 | `operations.py`, `workers.py`, `main_window.py` | 配列、表示、保存除外、改訂/token統合 | implemented / automated-local |
-| 遷移・既存出力 | AT-024〜025。FLEX-AT-011は履歴、現在はFLEX-AT-012〜015で限定上書き | `session.py`, `main_window.py` | 保存・破棄・中止、選択源分離、不正出力fallback snapshot、通知・cache寿命 | implemented / automated-local |
+| 遷移・既存出力 | AT-024〜025。FLEX-AT-011は履歴、現在はFLEX-AT-012〜015、017〜018で限定上書き | `session.py`, `main_window.py`, `image_io.py` | 保存・破棄・中止、選択源分離、外部出力復旧、不正出力fallback snapshot、preflight INPUT退避、通知・cache寿命 | implemented / automated-partial / windows-pending |
 | 保存・入力不変 | AT-026〜029 | `image_io.py`, `session.py`, `main_window.py` | 再読込、故障注入、SHA-256、置換前後競合 | implemented / automated-local |
 | 高DPI・画像外余白 | AT-030〜033 | `canvas.py`, `canvas_transform.py` | DPR数式・Qt統合・Windows実機 | implemented / automated-partial / AT-030 windows-pending |
 
@@ -141,6 +153,8 @@ GUI起動、独立動的probe、三系統の独立査読が成功したことで
 `QT_QPA_PLATFORM=offscreen uv run pytest -q tests/test_flexible_input_contract.py`を実行した28件成功である。
 版0.5.1では同じ公開契約試験62件、包装試験と合わせた公開二試験66件が成功した。版0.6.1では
 公開入力契約試験64件、表示比較契約5件、包装契約4件の計73件が成功した。
+版0.7.0では、同じ三公開試験ファイルの計100件と局所統合試験456件が成功した。この件数と下表の
+個別試験名だけから、Ruff、依存固定、包装成果物、Windows実機受理の成功を推定しない。
 
 フォルダ変更、再走査、起動時再読込は、候補画像を現在とは別の`ImageSession`へpreflightし、成功後に
 だけ対応一覧とセッションを一括導入する。版0.5.0までの公開試験は、JPEG取消、無効PNGから後続JPEG取消、
@@ -164,9 +178,11 @@ GUI起動、独立動的probe、三系統の独立査読が成功したことで
 | FLEX-AT-011 | version 1.1の既存出力自動優先と入力JPEG確認抑止。version 1.2の選択源分離は証明しない | `session.py`, `main_window.py`, `dialogs.py` | 公開試験`test_existing_output_is_automatically_preferred_without_source_confirmation`、`test_existing_output_bypasses_jpeg_confirmation_and_quantization`を履歴証拠として保持 | superseded / automated-local (version 1.1) |
 | FLEX-AT-012 | 対応付けの非零同数を維持し、正常出力を選んだ編集用画像対では未使用入力を復号・検査せず、入力選択時は厳格検査する | `session.py`, `main_window.py`, `image_io.py` | `test_output_resume_ignores_invalid_input_for_open_and_later_save`、`test_input_open_keeps_strict_validation_when_valid_output_exists`、`test_gui_auto_prefers_valid_output_when_unused_input_is_invalid`、`test_direct_open_pair_without_source_uses_output_priority`、`test_cold_start_auto_opens_first_strict_pair_from_existing_output` | implemented / automated-local |
 | FLEX-AT-013 | 原画像のEXIF表示方向反映後寸法と選択ラベル源を幅・高さ完全一致で照合し、ラベルPNGのOrientation 2〜8を拒否する | `image_io.py`, `session.py` | `test_output_resume_compares_output_with_display_oriented_original_only`、`test_output_resume_requires_exact_width_and_height`、`test_label_png_with_orientation_is_rejected_without_auto_rotation` | implemented / automated-local |
-| FLEX-AT-014 | preflight・前後移動は不正候補をmodalなしで飛ばし、全候補失敗時は理由を状態表示へ集約し、直接指定は一回通知する。出力由来・分類不能の失敗を恒久的な画像対cacheへ入れない | `main_window.py`, `errors.py` | `test_folder_preflight_skips_invalid_pair_without_modal_error`、`test_preflight_reports_every_failure_in_status_when_no_pair_is_usable`、`test_directional_navigation_skips_invalid_pair_without_modal_error`、`test_preflight_skips_output_and_unknown_failures_without_modal`、`test_directional_navigation_skips_output_and_unknown_failures_without_modal`、`test_direct_invalid_pair_reports_target_once`、`test_transient_open_failure_is_reported_but_not_cached_as_pair_error`、`test_cancelled_output_fallback_has_exactly_one_error_notification` | implemented / automated-local |
-| FLEX-AT-015 | fallback許可を出力snapshotへ結び付け、同じsnapshotでは再確認せず、変更後に再検査し、正常ならOUTPUTへ戻す | `main_window.py`, `image_io.py` | `test_accepted_output_fallback_is_not_reconfirmed_for_same_snapshot`、`test_accepted_output_fallback_is_invalidated_after_output_replacement` | implemented / automated-local |
+| FLEX-AT-014 | preflight・前後移動は不正候補をmodalなしで飛ばし、全候補失敗時は理由を状態表示へ集約し、直接指定は一回通知する。出力由来・分類不能の失敗を恒久的な画像対cacheへ入れない | `main_window.py`, `errors.py` | `test_folder_preflight_skips_invalid_pair_without_modal_error`、`test_preflight_reports_every_failure_in_status_when_no_pair_is_usable`、`test_directional_navigation_skips_invalid_pair_without_modal_error`、`test_preflight_falls_back_from_output_and_skips_unknown_failures_without_modal`、`test_directional_navigation_skips_output_and_unknown_failures_without_modal`、`test_direct_invalid_pair_reports_target_once`、`test_transient_open_failure_is_reported_but_not_cached_as_pair_error`、`test_cancelled_output_fallback_has_exactly_one_error_notification` | implemented / automated-local |
+| FLEX-AT-015 | fallback許可を出力snapshotへ結び付け、同じsnapshotでは再確認せず、変更後に再検査し、正常ならOUTPUTへ戻す。明示sourceは自動選択へ読み替えない | `main_window.py`, `image_io.py`, `errors.py` | `test_accepted_output_fallback_is_not_reconfirmed_for_same_snapshot`、`test_accepted_output_fallback_is_invalidated_after_output_replacement`に加え、`test_direct_output_fallback_binds_failure_to_the_failed_snapshot`、`test_direct_output_fallback_reopens_valid_replacement_changed_during_modal`、`test_direct_output_fallback_aborts_input_commit_when_snapshot_changes`が失敗後・確認中・仮INPUT読込中の置換を検出し、旧許可を流用せずOUTPUTへ戻す。`test_explicit_input_remains_explicit_after_accepted_output_fallback_changes`が明示INPUT保持とsource省略時OUTPUT再評価を固定する | implemented / automated-local |
 | FLEX-AT-016 | OUTPUT再開の保存は未使用入力の変更・破損・削除で止めず、INPUT開始では入力変更検査を維持する | `session.py`, `main_window.py` | `test_output_resume_ignores_invalid_input_for_open_and_later_save`がOUTPUT読込後の未使用入力置換・削除を、`test_input_source_external_change_screen_branches`がINPUT開始時の変更検査を固定 | implemented / automated-local |
+| FLEX-AT-017 | 同一snapshotをstrict-firstで検査し、復旧可能な外部PNGだけをICC best-effort sRGBと共通最近傍規則で非破壊三値化する。選択源は`OUTPUT`、状態は未保存とし、DPI metadataは受否に使わず、明示保存だけが同pathを厳格RGB三値PNGへ置換する | `image_io.py`の`load_editable_output_image`、`_decode_label_png_snapshot`、`_load_recoverable_output_png`、`quantize_srgb_to_labels`、`session.py`、`models.py`、`main_window.py` | 公開`test_external_output_recovery_public_format_matrix`がbit depth 1/2/4/8、mode `1/L/RGB/P/LA/RGBA`、実使用alpha全255の`P+tRNS`と元hash不変を、`test_external_output_recovery_rejects_unsafe_cases_without_writing`が透明・半透明alpha、16-bit、寸法、破損・非PNG、IEND後の余剰データを、`test_external_output_recovery_orientation_and_single_snapshot_contract`がOrientationと単一snapshotを検証する。`test_external_output_recovery_uses_rgb_fallback_for_invalid_icc_without_write`が不正ICCのRGB退避を、`test_external_output_recovery_expands_samples_for_valid_icc_color_space`がPをRGB、LAをLへ展開してからCMSへ渡すことを、`test_external_output_recovery_ignores_dpi_metadata`が72/300 DPIのファイルhash差・ラベル一致を固定する。`test_external_output_is_recovered_as_dirty_output_and_saved_canonically`、`test_recovered_output_save_detects_external_replacement`、`test_preflight_opens_external_output_set_without_modal_or_source_write`、`test_cold_start_recovers_external_output_without_input_jpeg_confirmation`が`OUTPUT`未保存、元hash不変、保存競合、要保存表示、明示保存後の厳格PNG、冷間起動を検証する。実物ICCによる色変換はWindows判断門に残す | implemented / automated-partial / windows-pending |
+| FLEX-AT-018 | 復旧不能OUTPUTに対し、起動・フォルダ選択・再走査preflightは同じ対の厳格INPUTへfallback確認modalなしで退避し、理由を保持する。INPUT JPEG確認、直接指定snapshot確認、前後移動skipは維持する | `main_window.py`の`_preflight_first_usable_pair`、`_choose_edit_source`、`_open_pair`、`session.py`、`image_io.py` | 公開`test_cold_start_falls_back_to_input_for_nonrecoverable_output_without_modal`、`test_folder_selection_falls_back_to_input_for_nonrecoverable_output_without_modal`、`test_rescan_falls_back_to_input_for_new_nonrecoverable_output_without_modal`が三preflight入口の同一対INPUT退避・理由表示・元hash不変・無modalを検証し、`test_preflight_falls_back_from_output_and_skips_unknown_failures_without_modal`が後続候補探索も固定する。`test_preflight_rechecks_output_replaced_after_failed_snapshot`はpreflight失敗snapshotの置換後にOUTPUT優先を再評価する。`test_folder_selection_jpeg_cancel_precedes_output_probe`、`test_folder_preflight_rolls_back_when_invalid_png_skips_to_cancelled_jpeg`、`test_directional_navigation_skips_output_and_unknown_failures_without_modal`、`test_accepted_output_fallback_is_not_reconfirmed_for_same_snapshot`、`test_accepted_output_fallback_is_invalidated_after_output_replacement`、`test_cancelled_output_fallback_has_exactly_one_error_notification`がJPEG確認、前後移動、直接指定snapshot境界を固定する。Windowsでは三入口を実包装・実ファイルでも別々に確認する | implemented / automated-partial / windows-pending |
 
 ## マウス入力割当追補の受入条件
 
@@ -231,6 +247,8 @@ GUI起動、独立動的probe、三系統の独立査読が成功したことで
   入力hash不変、対象業務寸法、`H=100/101`境界。
 - FLEX-AT-012〜016のWindows実ファイルによる選択源分離、ラベルOrientation、無modal探索、直接通知、
   fallback snapshot、未使用入力変更後のOUTPUT保存。
+- FLEX-AT-017〜018のWindows実ファイルによる外部出力限定復旧、元hash不変、要保存表示、厳格保存、
+  復旧不能出力からの三preflight入口INPUT退避、DPI metadata非依存、実物ICCとalphaの判定。
 - DISP-CMP-001〜008のWindows描画器での比較（暗）画素、100%〜200%表示、疑似色、再起動復元、
   切替前後の保存PNG不変。
 - 同じ側車ロック規約に従わない別アプリが、最後の内容照合と `os.replace` 呼出しの間へ

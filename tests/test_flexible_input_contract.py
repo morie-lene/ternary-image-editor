@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageCms
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
@@ -813,6 +813,216 @@ def test_cold_start_auto_opens_first_strict_pair_from_existing_output(
         window.close()
 
 
+def test_cold_start_recovers_external_output_without_input_jpeg_confirmation(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_dir = tmp_path / "cold-recovery" / "original"
+    ternary_dir = tmp_path / "cold-recovery" / "ternary"
+    output_dir = tmp_path / "cold-recovery" / "output"
+    suffix = "cold-recovery-output-testxx"
+    assert len(suffix) == 27
+    original_path = original_dir / f"①{suffix}.png"
+    ternary_path = ternary_dir / f"001{suffix}.jpg"
+    output_path = output_dir / f"001{suffix}.png"
+    _save_image(
+        original_path,
+        np.full((3, 4, 3), 80, dtype=np.uint8),
+        image_format="PNG",
+    )
+    _save_image(
+        ternary_path,
+        np.full((3, 4, 3), 127, dtype=np.uint8),
+        image_format="JPEG",
+    )
+    _save_image(output_path, np.full((3, 4), 17, dtype=np.uint8), image_format="PNG")
+    output_hash = _sha256(output_path)
+    settings = QSettings(str(tmp_path / "cold-recovery.ini"), QSettings.Format.IniFormat)
+    settings.setValue("folders/original", str(original_dir))
+    settings.setValue("folders/ternary", str(ternary_dir))
+    settings.setValue("folders/output", str(output_dir))
+    settings.setValue("pairing/mode", PairingMode.STRICT_KEY.value)
+    monkeypatch.setattr(
+        main_window_module,
+        "confirm_ternary_jpeg_import",
+        lambda *_args: pytest.fail("復旧可能なOUTPUTでは入力JPEG確認を出さない"),
+    )
+
+    window = MainWindow(settings=settings)
+    window._request_components = lambda: None
+    qtbot.addWidget(window)
+    window.show()
+    QApplication.processEvents()
+    try:
+        assert window.current_index == 0
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert window.session.import_report.recovered_output
+        assert window.session.is_dirty
+        assert "出力変換済・要保存" in window.image_list.item(0).text()
+        assert _sha256(output_path) == output_hash
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_cold_start_falls_back_to_input_for_nonrecoverable_output_without_modal(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_dir = tmp_path / "cold-fallback" / "original"
+    ternary_dir = tmp_path / "cold-fallback" / "ternary"
+    output_dir = tmp_path / "cold-fallback" / "output"
+    suffix = "cold-fallback-output-testxx"
+    assert len(suffix) == 27
+    original_path = original_dir / f"①{suffix}.png"
+    ternary_path = ternary_dir / f"001{suffix}.png"
+    output_path = output_dir / f"001{suffix}.png"
+    input_labels = np.full((3, 4), 1, dtype=np.uint8)
+    _save_image(
+        original_path,
+        np.full((3, 4, 3), 80, dtype=np.uint8),
+        image_format="PNG",
+    )
+    _save_label_png(ternary_path, input_labels)
+    rgba = np.zeros((3, 4, 4), dtype=np.uint8)
+    rgba[:, :, :3] = 17
+    _save_image(output_path, rgba, image_format="PNG")
+    output_hash = _sha256(output_path)
+    settings = QSettings(str(tmp_path / "cold-fallback.ini"), QSettings.Format.IniFormat)
+    settings.setValue("folders/original", str(original_dir))
+    settings.setValue("folders/ternary", str(ternary_dir))
+    settings.setValue("folders/output", str(output_dir))
+    settings.setValue("pairing/mode", PairingMode.STRICT_KEY.value)
+    monkeypatch.setattr(
+        QMessageBox,
+        "exec",
+        lambda *_args: pytest.fail("cold-start preflightでfallback modalを出さない"),
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "show_error",
+        lambda *_args: pytest.fail("有効なINPUTへの退避でerror modalを出さない"),
+    )
+
+    window = MainWindow(settings=settings)
+    window._request_components = lambda: None
+    qtbot.addWidget(window)
+    window.show()
+    QApplication.processEvents()
+    try:
+        assert window.current_index == 0
+        assert window.session.edit_source is EditSource.INPUT
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, input_labels)
+        assert "出力不正" in window.image_list.item(0).text()
+        assert "入力三値画像を使用" in window.statusBar().currentMessage()
+        assert _sha256(output_path) == output_hash
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_folder_selection_falls_back_to_input_for_nonrecoverable_output_without_modal(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folders = _make_natural_folders(
+        tmp_path / "folder-selection-output-fallback",
+        [np.full((3, 4), 1, dtype=np.uint8)],
+        outputs={0: np.zeros((3, 4), dtype=np.uint8)},
+    )
+    output_path = folders[2] / "a.png"
+    rgba = np.zeros((3, 4, 4), dtype=np.uint8)
+    rgba[:, :, :3] = 17
+    _save_image(output_path, rgba, image_format="PNG")
+    output_hash = _sha256(output_path)
+    chosen_folders = folders
+
+    class AcceptedFolderDialog:
+        pairing_mode = PairingMode.NATURAL_ORDER
+        folders = chosen_folders
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+    window = _make_contract_window(qtbot, tmp_path)
+    monkeypatch.setattr(main_window_module, "FolderSelectionDialog", AcceptedFolderDialog)
+    monkeypatch.setattr(main_window_module, "confirm_natural_pairing", lambda *_args: True)
+    monkeypatch.setattr(
+        window,
+        "_ask_input_fallback",
+        lambda *_args: pytest.fail("folder preflightでfallback modalを出さない"),
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "show_error",
+        lambda *_args: pytest.fail("有効なINPUTへの退避でerror modalを出さない"),
+    )
+    try:
+        window._choose_folders()
+
+        assert window.current_index == 0
+        assert window.session.edit_source is EditSource.INPUT
+        assert 0 in window._output_errors
+        assert "入力三値画像を使用" in window.statusBar().currentMessage()
+        assert _sha256(output_path) == output_hash
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_rescan_falls_back_to_input_for_new_nonrecoverable_output_without_modal(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folders = _make_natural_folders(
+        tmp_path / "rescan-output-fallback",
+        [np.full((3, 4), 1, dtype=np.uint8)],
+    )
+    window = _make_contract_window(qtbot, tmp_path)
+    try:
+        window.configure_folders(
+            *folders,
+            pairing_mode=PairingMode.NATURAL_ORDER,
+            natural_order_confirmed=True,
+        )
+        assert window.open_pair(0)
+        output_path = folders[2] / "a.png"
+        rgba = np.zeros((3, 4, 4), dtype=np.uint8)
+        rgba[:, :, :3] = 17
+        _save_image(output_path, rgba, image_format="PNG")
+        output_hash = _sha256(output_path)
+        monkeypatch.setattr(main_window_module, "confirm_natural_pairing", lambda *_args: True)
+        monkeypatch.setattr(
+            window,
+            "_ask_input_fallback",
+            lambda *_args: pytest.fail("rescan preflightでfallback modalを出さない"),
+        )
+        monkeypatch.setattr(
+            main_window_module,
+            "show_error",
+            lambda *_args: pytest.fail("有効なINPUTへの退避でerror modalを出さない"),
+        )
+
+        window._rescan_folders()
+
+        assert window.current_index == 0
+        assert window.session.edit_source is EditSource.INPUT
+        assert 0 in window._output_errors
+        assert "入力三値画像を使用" in window.statusBar().currentMessage()
+        assert _sha256(output_path) == output_hash
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
 def test_existing_output_bypasses_jpeg_confirmation_and_quantization(
     qtbot,
     tmp_path: Path,
@@ -1333,6 +1543,388 @@ def test_output_resume_ignores_invalid_input_for_open_and_later_save(
         assert _sha256(pair.ternary_path) == expected_input_hash
 
 
+def test_external_output_is_recovered_as_dirty_output_and_saved_canonically(
+    tmp_path: Path,
+) -> None:
+    pair = _make_png_pair(tmp_path / "external-output", original_size=(4, 3))
+    external_pixels = np.array(
+        [
+            [0, 80, 128, 255],
+            [255, 200, 64, 0],
+            [10, 100, 190, 250],
+        ],
+        dtype=np.uint8,
+    )
+    _save_image(pair.output_path, external_pixels, image_format="PNG")
+    original_output_hash = _sha256(pair.output_path)
+    expected_labels = image_io.quantize_srgb_to_labels(external_pixels)
+    current = ImageSession()
+
+    current.open_pair(pair, EditSource.OUTPUT, expected_size=(4, 3))
+
+    assert current.edit_source is EditSource.OUTPUT
+    assert current.is_dirty
+    assert not current.has_saved_current
+    assert current.import_requires_save
+    assert current.import_report.recovered_output
+    assert current.import_report.source_mode == "L"
+    assert current.labels is not None
+    assert np.array_equal(current.labels, expected_labels)
+    assert _sha256(pair.output_path) == original_output_hash
+
+    current.save(expected_size=(4, 3))
+
+    assert not current.is_dirty
+    assert current.has_saved_current
+    assert not current.import_requires_save
+    assert _sha256(pair.output_path) != original_output_hash
+    saved = image_io.validate_output_png(pair.output_path, expected_size=(4, 3))
+    assert np.array_equal(saved.labels, expected_labels)
+    assert image_io.inspect_png(pair.output_path).color_type == 2
+
+
+def test_recovered_output_save_detects_external_replacement(tmp_path: Path) -> None:
+    pair = _make_png_pair(tmp_path / "recovered-conflict", original_size=(4, 3))
+    _save_image(
+        pair.output_path,
+        np.full((3, 4), 17, dtype=np.uint8),
+        image_format="PNG",
+    )
+    current = ImageSession()
+    current.open_pair(pair, EditSource.OUTPUT, expected_size=(4, 3))
+    external_labels = np.full((3, 4), 2, dtype=np.uint8)
+    _save_label_png(pair.output_path, external_labels, rgb=True)
+    external_hash = _sha256(pair.output_path)
+
+    with pytest.raises(ExternalOutputModificationError):
+        current.save(expected_size=(4, 3))
+
+    assert current.is_dirty
+    assert _sha256(pair.output_path) == external_hash
+    assert np.array_equal(
+        image_io.validate_output_png(pair.output_path, expected_size=(4, 3)).labels,
+        external_labels,
+    )
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ["1", "L", "RGB", "P1", "P2", "P4", "LA", "RGBA", "P-opaque-trns"],
+)
+def test_external_output_recovery_public_format_matrix(
+    tmp_path: Path,
+    variant: str,
+) -> None:
+    path = tmp_path / f"external-{variant}.png"
+    gray = np.array(
+        [[0, 80, 128, 255], [255, 200, 64, 0]],
+        dtype=np.uint8,
+    )
+    if variant == "1":
+        image = Image.fromarray(gray >= 128).convert("1")
+        image.save(path, format="PNG")
+        image.close()
+    elif variant == "L":
+        _save_image(path, gray, image_format="PNG")
+    elif variant == "RGB":
+        _save_image(path, np.repeat(gray[:, :, None], 3, axis=2), image_format="PNG")
+    elif variant in {"P1", "P2", "P4"}:
+        indices = (
+            np.array([[0, 1, 0, 1], [1, 0, 1, 0]], dtype=np.uint8)
+            if variant == "P1"
+            else np.array([[0, 1, 2, 3], [3, 2, 1, 0]], dtype=np.uint8)
+        )
+        image = Image.fromarray(indices, mode="P")
+        image.putpalette([0, 0, 0, 80, 80, 80, 128, 128, 128, 255, 255, 255] + [0, 0, 0] * 252)
+        image.save(path, format="PNG", bits={"P1": 1, "P2": 2, "P4": 4}[variant])
+        image.close()
+    elif variant == "LA":
+        _save_image(
+            path,
+            np.dstack((gray, np.full_like(gray, 255))),
+            image_format="PNG",
+        )
+    elif variant == "RGBA":
+        _save_image(
+            path,
+            np.dstack((np.repeat(gray[:, :, None], 3, axis=2), np.full_like(gray, 255))),
+            image_format="PNG",
+        )
+    else:
+        image = Image.fromarray(
+            np.array([[0, 1, 2, 1], [2, 1, 0, 2]], dtype=np.uint8),
+            mode="P",
+        )
+        image.putpalette([0, 0, 0, 128, 128, 128, 255, 255, 255] + [0, 0, 0] * 253)
+        image.save(path, format="PNG", transparency=bytes([255, 255, 255, 0]))
+        image.close()
+
+    before_hash = _sha256(path)
+    structure = image_io.inspect_png(path)
+    expected_bit_depth = {"1": 1, "P1": 1, "P2": 2, "P4": 4}.get(variant, 8)
+    with pytest.raises(ImageValidationError):
+        image_io.load_output_image(path, expected_size=(4, 2))
+
+    loaded = image_io.load_editable_output_image(path, expected_size=(4, 2))
+
+    expected_mode = {
+        "P1": "P",
+        "P2": "P",
+        "P4": "P",
+        "P-opaque-trns": "P",
+    }.get(variant, variant)
+    assert loaded.requires_save
+    assert loaded.import_report.recovered_output
+    assert loaded.import_report.source_mode == expected_mode
+    assert structure.bit_depth == expected_bit_depth
+    assert structure.has_trns is (variant == "P-opaque-trns")
+    assert loaded.fingerprint.sha256 == before_hash
+    assert _sha256(path) == before_hash
+
+
+def test_external_output_recovery_rejects_unsafe_cases_without_writing(
+    tmp_path: Path,
+) -> None:
+    cases: list[tuple[Path, tuple[int, int], str]] = []
+
+    for name, alpha_value in (("transparent", 0), ("semitransparent", 127)):
+        path = tmp_path / f"{name}.png"
+        rgba = np.zeros((2, 4, 4), dtype=np.uint8)
+        rgba[:, :, :3] = 128
+        rgba[:, :, 3] = 255
+        rgba[0, 0, 3] = alpha_value
+        _save_image(path, rgba, image_format="PNG")
+        cases.append((path, (4, 2), "透明"))
+
+    palette_path = tmp_path / "palette-transparent.png"
+    palette = Image.fromarray(
+        np.array([[0, 1, 2, 1], [2, 1, 0, 2]], dtype=np.uint8),
+        mode="P",
+    )
+    palette.putpalette([0, 0, 0, 128, 128, 128, 255, 255, 255] + [0, 0, 0] * 253)
+    palette.save(palette_path, format="PNG", transparency=bytes([255, 127, 255]))
+    palette.close()
+    assert image_io.inspect_png(palette_path).has_trns
+    cases.append((palette_path, (4, 2), "透明"))
+
+    sixteen_path = tmp_path / "sixteen.png"
+    _save_image(
+        sixteen_path,
+        np.zeros((2, 4), dtype=np.uint16),
+        image_format="PNG",
+    )
+    cases.append((sixteen_path, (4, 2), "bit depth"))
+
+    wrong_size = tmp_path / "wrong-size.png"
+    _save_image(wrong_size, np.zeros((3, 4), dtype=np.uint8), image_format="PNG")
+    cases.append((wrong_size, (4, 2), "寸法不一致"))
+
+    fake = tmp_path / "fake.png"
+    fake.write_bytes(b"not a png")
+    cases.append((fake, (4, 2), "PNG"))
+
+    truncated = tmp_path / "truncated.png"
+    truncated.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+    cases.append((truncated, (4, 2), "PNG構造"))
+
+    trailing = tmp_path / "trailing-after-iend.png"
+    _save_image(trailing, np.full((2, 4), 17, dtype=np.uint8), image_format="PNG")
+    trailing.write_bytes(trailing.read_bytes() + b"junk")
+    cases.append((trailing, (4, 2), "IEND後"))
+
+    for path, expected_size, reason in cases:
+        before_hash = _sha256(path)
+        with pytest.raises(ImageValidationError, match=reason):
+            image_io.load_editable_output_image(path, expected_size=expected_size)
+        assert _sha256(path) == before_hash
+
+
+def test_external_output_recovery_orientation_and_single_snapshot_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pixels = np.full((2, 4, 3), 17, dtype=np.uint8)
+    paths: dict[int, Path] = {}
+    for orientation in range(1, 9):
+        path = tmp_path / f"orientation-{orientation}.png"
+        image = Image.fromarray(pixels)
+        exif = Image.Exif()
+        exif[274] = orientation
+        image.save(path, format="PNG", exif=exif)
+        image.close()
+        paths[orientation] = path
+
+    original_read_snapshot = image_io._read_snapshot
+    calls: list[Path] = []
+
+    def counted_read_snapshot(path: Path):
+        calls.append(path)
+        return original_read_snapshot(path)
+
+    monkeypatch.setattr(image_io, "_read_snapshot", counted_read_snapshot)
+    accepted = image_io.load_editable_output_image(paths[1], expected_size=(4, 2))
+
+    assert accepted.import_report.recovered_output
+    assert calls == [paths[1]]
+    for orientation in range(2, 9):
+        before_hash = _sha256(paths[orientation])
+        with pytest.raises(ImageValidationError, match="Orientation"):
+            image_io.load_editable_output_image(
+                paths[orientation],
+                expected_size=(4, 2),
+            )
+        assert _sha256(paths[orientation]) == before_hash
+
+
+def test_external_output_recovery_uses_rgb_fallback_for_invalid_icc_without_write(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "invalid-icc.png"
+    pixels = np.full((2, 4, 3), 17, dtype=np.uint8)
+    image = Image.fromarray(pixels)
+    image.save(path, format="PNG", icc_profile=b"invalid-icc-profile")
+    image.close()
+    before_hash = _sha256(path)
+
+    loaded = image_io.load_editable_output_image(path, expected_size=(4, 2))
+
+    assert loaded.import_report.recovered_output
+    assert loaded.import_report.source_mode == "RGB"
+    assert np.array_equal(loaded.labels, np.zeros((2, 4), dtype=np.uint8))
+    assert _sha256(path) == before_hash
+
+
+@pytest.mark.parametrize(
+    ("variant", "expected_cms_mode"),
+    [("P", "RGB"), ("LA", "L")],
+)
+def test_external_output_recovery_expands_samples_for_valid_icc_color_space(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    variant: str,
+    expected_cms_mode: str,
+) -> None:
+    path = tmp_path / f"valid-icc-{variant}.png"
+    gray = np.array([[0, 64, 192, 255], [255, 192, 64, 0]], dtype=np.uint8)
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    if variant == "P":
+        image = Image.fromarray(
+            np.array([[0, 1, 2, 3], [3, 2, 1, 0]], dtype=np.uint8),
+            mode="P",
+        )
+        image.putpalette(
+            [0, 0, 0, 64, 64, 64, 192, 192, 192, 255, 255, 255]
+            + [0, 0, 0] * 252
+        )
+    else:
+        image = Image.fromarray(
+            np.dstack((gray, np.full_like(gray, 255))),
+            mode="LA",
+        )
+    image.save(path, format="PNG", icc_profile=profile)
+    image.close()
+    before_hash = _sha256(path)
+    cms_modes: list[str] = []
+
+    def capture_profile_input(
+        image: Image.Image,
+        *_args,
+        outputMode: str,
+        **_kwargs,
+    ) -> Image.Image:
+        cms_modes.append(image.mode)
+        return image.convert(outputMode)
+
+    monkeypatch.setattr(image_io.ImageCms, "profileToProfile", capture_profile_input)
+
+    loaded = image_io.load_editable_output_image(path, expected_size=(4, 2))
+
+    assert cms_modes == [expected_cms_mode]
+    assert np.array_equal(loaded.labels, image_io.quantize_srgb_to_labels(gray))
+    assert loaded.import_report.recovered_output
+    assert _sha256(path) == before_hash
+
+
+def test_external_output_recovery_ignores_dpi_metadata(tmp_path: Path) -> None:
+    pixels = np.array(
+        [[0, 80, 128, 255], [255, 200, 64, 0]],
+        dtype=np.uint8,
+    )
+    paths: list[Path] = []
+    loaded_labels: list[np.ndarray] = []
+    for dpi in (72, 300):
+        path = tmp_path / f"dpi-{dpi}.png"
+        image = Image.fromarray(pixels)
+        image.save(path, format="PNG", dpi=(dpi, dpi))
+        image.close()
+        paths.append(path)
+        loaded = image_io.load_editable_output_image(path, expected_size=(4, 2))
+        loaded_labels.append(loaded.labels)
+
+    assert _sha256(paths[0]) != _sha256(paths[1])
+    assert np.array_equal(loaded_labels[0], loaded_labels[1])
+    assert np.array_equal(
+        loaded_labels[0],
+        image_io.quantize_srgb_to_labels(pixels),
+    )
+
+
+def test_preflight_opens_external_output_set_without_modal_or_source_write(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folders = _make_natural_folders(
+        tmp_path / "external-output-set",
+        [np.zeros((3, 4), dtype=np.uint8) for _ in range(2)],
+        outputs={
+            0: np.zeros((3, 4), dtype=np.uint8),
+            1: np.zeros((3, 4), dtype=np.uint8),
+        },
+    )
+    output_paths = sorted(folders[2].glob("*.png"))
+    for index, path in enumerate(output_paths):
+        _save_image(
+            path,
+            np.full((3, 4), 17 + index, dtype=np.uint8),
+            image_format="PNG",
+        )
+    output_hashes = {path: _sha256(path) for path in output_paths}
+    result = pairing.plan_pairing(*folders, mode=PairingMode.NATURAL_ORDER)
+    window = _make_contract_window(qtbot, tmp_path)
+    monkeypatch.setattr(
+        window,
+        "_ask_input_fallback",
+        lambda *_args: pytest.fail("復旧可能な外部出力でfallback確認は不要"),
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "show_error",
+        lambda *_args: pytest.fail("復旧可能な外部出力でerror modalは不要"),
+    )
+    try:
+        prepared = window._preflight_first_usable_pair(result)
+
+        assert prepared is not None
+        assert prepared.index == 0
+        assert prepared.source is EditSource.OUTPUT
+        assert prepared.session.is_dirty
+        assert prepared.session.import_report.recovered_output
+        assert prepared.output_errors == {}
+
+        window._commit_prepared_pairing(result, folders, prepared)
+
+        assert window.current_index == 0
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert "出力変換済・要保存" in window.image_list.item(0).text()
+        assert "外部出力を三値化" in window.statusBar().currentMessage()
+        assert "RGB PNG保存が必要" in window.statusBar().currentMessage()
+        assert {path: _sha256(path) for path in output_paths} == output_hashes
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
 def test_output_resume_compares_output_with_display_oriented_original_only(
     tmp_path: Path,
 ) -> None:
@@ -1624,7 +2216,7 @@ def test_directional_navigation_skips_invalid_pair_without_modal_error(
 
 
 @pytest.mark.parametrize("failure_kind", ["output", "unknown"])
-def test_preflight_skips_output_and_unknown_failures_without_modal(
+def test_preflight_falls_back_from_output_and_skips_unknown_failures_without_modal(
     failure_kind: str,
     qtbot,
     tmp_path: Path,
@@ -1637,9 +2229,11 @@ def test_preflight_skips_output_and_unknown_failures_without_modal(
     )
     first_output = folders[2] / "a.png"
     if failure_kind == "output":
+        pixels = np.zeros((3, 4, 4), dtype=np.uint8)
+        pixels[:, :, :3] = 17
         _save_image(
             first_output,
-            np.full((3, 4, 3), 17, dtype=np.uint8),
+            pixels,
             image_format="PNG",
         )
     result = pairing.plan_pairing(*folders, mode=PairingMode.NATURAL_ORDER)
@@ -1673,9 +2267,10 @@ def test_preflight_skips_output_and_unknown_failures_without_modal(
         prepared = window._preflight_first_usable_pair(result)
 
         assert prepared is not None
-        assert prepared.index == 1
+        assert prepared.index == (0 if failure_kind == "output" else 1)
         assert 0 not in prepared.pair_errors
         if failure_kind == "output":
+            assert prepared.source is EditSource.INPUT
             assert 0 in prepared.output_errors
             assert 0 not in prepared.transient_errors
         else:
@@ -1700,9 +2295,11 @@ def test_directional_navigation_skips_output_and_unknown_failures_without_modal(
     )
     second_output = folders[2] / "b.png"
     if failure_kind == "output":
+        pixels = np.zeros((3, 4, 4), dtype=np.uint8)
+        pixels[:, :, :3] = 17
         _save_image(
             second_output,
-            np.full((3, 4, 3), 17, dtype=np.uint8),
+            pixels,
             image_format="PNG",
         )
     window = _make_contract_window(qtbot, tmp_path)
@@ -1805,9 +2402,11 @@ def test_accepted_output_fallback_is_not_reconfirmed_for_same_snapshot(
         outputs={0: np.zeros((3, 4), dtype=np.uint8)},
     )
     invalid_output = folders[2] / "a.png"
+    pixels = np.zeros((3, 4, 4), dtype=np.uint8)
+    pixels[:, :, :3] = 17
     _save_image(
         invalid_output,
-        np.full((3, 4, 3), 17, dtype=np.uint8),
+        pixels,
         image_format="PNG",
     )
     output_hash = _sha256(invalid_output)
@@ -1856,9 +2455,11 @@ def test_accepted_output_fallback_is_invalidated_after_output_replacement(
         outputs={0: np.zeros((3, 4), dtype=np.uint8)},
     )
     replaced_output = folders[2] / "a.png"
+    pixels = np.zeros((3, 4, 4), dtype=np.uint8)
+    pixels[:, :, :3] = 17
     _save_image(
         replaced_output,
-        np.full((3, 4, 3), 17, dtype=np.uint8),
+        pixels,
         image_format="PNG",
     )
     replacement_labels = np.full((3, 4), 2, dtype=np.uint8)
@@ -1896,6 +2497,249 @@ def test_accepted_output_fallback_is_invalidated_after_output_replacement(
         assert np.array_equal(window.session.labels, replacement_labels)
         assert fallback_calls == [replaced_output]
         assert 0 not in window._output_errors
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_explicit_input_remains_explicit_after_accepted_output_fallback_changes(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_labels = np.full((3, 4), 1, dtype=np.uint8)
+    folders = _make_natural_folders(
+        tmp_path / "fallback-explicit-input",
+        [input_labels],
+        outputs={0: np.zeros((3, 4), dtype=np.uint8)},
+    )
+    output_path = folders[2] / "a.png"
+    invalid = np.zeros((3, 4, 4), dtype=np.uint8)
+    invalid[:, :, :3] = 17
+    _save_image(output_path, invalid, image_format="PNG")
+    replacement_labels = np.full((3, 4), 2, dtype=np.uint8)
+    window = _make_contract_window(qtbot, tmp_path)
+    try:
+        window.configure_folders(
+            *folders,
+            pairing_mode=PairingMode.NATURAL_ORDER,
+            natural_order_confirmed=True,
+        )
+        monkeypatch.setattr(window, "_ask_input_fallback", lambda *_args: True)
+        assert window.open_pair(0, EditSource.OUTPUT)
+        assert window.session.edit_source is EditSource.INPUT
+        assert 0 in window._accepted_input_fallbacks
+        _save_label_png(output_path, replacement_labels, rgb=True)
+
+        assert window.open_pair(0, EditSource.INPUT)
+
+        assert window.session.edit_source is EditSource.INPUT
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, input_labels)
+
+        assert window.open_pair(0)
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, replacement_labels)
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_direct_output_fallback_binds_failure_to_the_failed_snapshot(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folders = _make_natural_folders(
+        tmp_path / "fallback-failed-snapshot",
+        [np.zeros((3, 4), dtype=np.uint8)],
+        outputs={0: np.zeros((3, 4), dtype=np.uint8)},
+    )
+    output_path = folders[2] / "a.png"
+    invalid = np.zeros((3, 4, 4), dtype=np.uint8)
+    invalid[:, :, :3] = 17
+    _save_image(output_path, invalid, image_format="PNG")
+    failed_sha256 = _sha256(output_path)
+    replacement_labels = np.full((3, 4), 2, dtype=np.uint8)
+    window = _make_contract_window(qtbot, tmp_path)
+    try:
+        window.configure_folders(
+            *folders,
+            pairing_mode=PairingMode.NATURAL_ORDER,
+            natural_order_confirmed=True,
+        )
+        real_open = window.session.open_pair
+        injected = False
+
+        def replace_after_failure(pair, source, **kwargs) -> None:
+            nonlocal injected
+            if EditSource(source) is EditSource.OUTPUT and not injected:
+                injected = True
+                _save_label_png(output_path, replacement_labels, rgb=True)
+                raise ImageValidationError(
+                    output_path,
+                    "失敗snapshot A",
+                    observed_sha256=failed_sha256,
+                )
+            real_open(pair, source, **kwargs)
+
+        monkeypatch.setattr(window.session, "open_pair", replace_after_failure)
+        monkeypatch.setattr(
+            window,
+            "_ask_input_fallback",
+            lambda *_args: pytest.fail("置換後の正常OUTPUTへ旧確認を流用しない"),
+        )
+
+        assert window.open_pair(0, EditSource.OUTPUT)
+
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, replacement_labels)
+        assert 0 not in window._accepted_input_fallbacks
+        assert 0 not in window._output_errors
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_direct_output_fallback_reopens_valid_replacement_changed_during_modal(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folders = _make_natural_folders(
+        tmp_path / "fallback-modal-snapshot",
+        [np.zeros((3, 4), dtype=np.uint8)],
+        outputs={0: np.zeros((3, 4), dtype=np.uint8)},
+    )
+    output_path = folders[2] / "a.png"
+    invalid = np.zeros((3, 4, 4), dtype=np.uint8)
+    invalid[:, :, :3] = 17
+    _save_image(output_path, invalid, image_format="PNG")
+    replacement_labels = np.full((3, 4), 2, dtype=np.uint8)
+    window = _make_contract_window(qtbot, tmp_path)
+    try:
+        window.configure_folders(
+            *folders,
+            pairing_mode=PairingMode.NATURAL_ORDER,
+            natural_order_confirmed=True,
+        )
+        fallback_calls: list[Path] = []
+
+        def replace_during_modal(error: ImageValidationError) -> bool:
+            fallback_calls.append(error.path)
+            _save_label_png(output_path, replacement_labels, rgb=True)
+            return True
+
+        monkeypatch.setattr(window, "_ask_input_fallback", replace_during_modal)
+
+        assert window.open_pair(0, EditSource.OUTPUT)
+
+        assert fallback_calls == [output_path]
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert window.session.has_saved_current
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, replacement_labels)
+        assert 0 not in window._accepted_input_fallbacks
+        assert 0 not in window._output_errors
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_direct_output_fallback_aborts_input_commit_when_snapshot_changes(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folders = _make_natural_folders(
+        tmp_path / "fallback-input-commit-snapshot",
+        [np.zeros((3, 4), dtype=np.uint8)],
+        outputs={0: np.zeros((3, 4), dtype=np.uint8)},
+    )
+    output_path = folders[2] / "a.png"
+    invalid = np.zeros((3, 4, 4), dtype=np.uint8)
+    invalid[:, :, :3] = 17
+    _save_image(output_path, invalid, image_format="PNG")
+    replacement_labels = np.full((3, 4), 2, dtype=np.uint8)
+    window = _make_contract_window(qtbot, tmp_path)
+    try:
+        window.configure_folders(
+            *folders,
+            pairing_mode=PairingMode.NATURAL_ORDER,
+            natural_order_confirmed=True,
+        )
+        real_open = ImageSession.open_pair
+        replaced = False
+
+        def replace_after_candidate_input(self, pair, source, **kwargs) -> None:
+            nonlocal replaced
+            real_open(self, pair, source, **kwargs)
+            if EditSource(source) is EditSource.INPUT and not replaced:
+                replaced = True
+                _save_label_png(output_path, replacement_labels, rgb=True)
+
+        monkeypatch.setattr(ImageSession, "open_pair", replace_after_candidate_input)
+        monkeypatch.setattr(window, "_ask_input_fallback", lambda *_args: True)
+
+        assert window.open_pair(0, EditSource.OUTPUT)
+
+        assert replaced
+        assert window.session.edit_source is EditSource.OUTPUT
+        assert window.session.has_saved_current
+        assert window.session.labels is not None
+        assert np.array_equal(window.session.labels, replacement_labels)
+        assert 0 not in window._accepted_input_fallbacks
+        assert 0 not in window._output_errors
+    finally:
+        window._allow_close_once = True
+        window.close()
+
+
+def test_preflight_rechecks_output_replaced_after_failed_snapshot(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folders = _make_natural_folders(
+        tmp_path / "preflight-failed-snapshot",
+        [np.zeros((3, 4), dtype=np.uint8)],
+        outputs={0: np.zeros((3, 4), dtype=np.uint8)},
+    )
+    output_path = folders[2] / "a.png"
+    invalid = np.zeros((3, 4, 4), dtype=np.uint8)
+    invalid[:, :, :3] = 17
+    _save_image(output_path, invalid, image_format="PNG")
+    failed_sha256 = _sha256(output_path)
+    replacement_labels = np.full((3, 4), 2, dtype=np.uint8)
+    result = pairing.plan_pairing(*folders, mode=PairingMode.NATURAL_ORDER)
+    window = _make_contract_window(qtbot, tmp_path)
+    real_open = ImageSession.open_pair
+    injected = False
+
+    def replace_after_failure(self, pair, source, **kwargs) -> None:
+        nonlocal injected
+        if EditSource(source) is EditSource.OUTPUT and not injected:
+            injected = True
+            _save_label_png(output_path, replacement_labels, rgb=True)
+            raise ImageValidationError(
+                output_path,
+                "失敗snapshot A",
+                observed_sha256=failed_sha256,
+            )
+        real_open(self, pair, source, **kwargs)
+
+    monkeypatch.setattr(ImageSession, "open_pair", replace_after_failure)
+    try:
+        prepared = window._preflight_first_usable_pair(result)
+
+        assert prepared is not None
+        assert prepared.source is EditSource.OUTPUT
+        assert prepared.output_errors == {}
+        assert prepared.transient_errors == {}
+        assert prepared.session.labels is not None
+        assert np.array_equal(prepared.session.labels, replacement_labels)
     finally:
         window._allow_close_once = True
         window.close()
@@ -1953,14 +2797,9 @@ def test_transient_open_failure_is_reported_but_not_cached_as_pair_error(
         assert 0 not in window._pair_errors
         assert window.image_list.count() == 1
         assert window.error_list.count() == 0
-        if failure_kind == "external-output":
-            assert len(fallback_shown) == 1
-            assert error_shown == []
-            message = fallback_shown[0]
-        else:
-            assert fallback_shown == []
-            assert len(error_shown) == 1
-            message = error_shown[0][1]
+        assert fallback_shown == []
+        assert len(error_shown) == 1
+        message = error_shown[0][1]
         assert any(
             str(path) in message
             for path in (pair.original_path, pair.ternary_path, pair.output_path)
@@ -1981,9 +2820,11 @@ def test_cancelled_output_fallback_has_exactly_one_error_notification(
         outputs={0: np.zeros((3, 4), dtype=np.uint8)},
     )
     invalid_output = folders[2] / "a.png"
+    pixels = np.zeros((3, 4, 4), dtype=np.uint8)
+    pixels[:, :, :3] = 17
     _save_image(
         invalid_output,
-        np.full((3, 4, 3), 17, dtype=np.uint8),
+        pixels,
         image_format="PNG",
     )
     window = _make_contract_window(qtbot, tmp_path)
