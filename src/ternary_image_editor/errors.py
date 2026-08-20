@@ -24,6 +24,7 @@ class ImageValidationError(TernaryEditorError):
     path: Path
     reason: str
     details: tuple[str, ...] = ()
+    observed_sha256: str | None = None
 
     def __str__(self) -> str:
         lines = [
@@ -43,6 +44,7 @@ class PairDimensionError(TernaryEditorError):
     ternary_path: Path
     ternary_size: tuple[int, int]
     ternary_role: str = "入力三値画像"
+    ternary_sha256: str | None = None
 
     def __str__(self) -> str:
         return (

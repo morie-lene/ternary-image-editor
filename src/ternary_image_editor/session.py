@@ -21,8 +21,8 @@ from .errors import (
 from .history import HistoryManager, HistoryTrimReport, PixelDelta, make_pixel_delta
 from .image_io import (
     fingerprint_file,
+    load_editable_output_image,
     load_original_image,
-    load_output_image,
     load_ternary_image,
     normalized_protected_labels_copy,
     save_labels_atomic,
@@ -219,7 +219,10 @@ class ImageSession:
             int(loaded_original.rgb.shape[0]),
         )
         if edit_source == EditSource.OUTPUT:
-            loaded_labels = load_output_image(pair.output_path, expected_size=expected_size)
+            loaded_labels = load_editable_output_image(
+                pair.output_path,
+                expected_size=expected_size,
+            )
             label_size = (
                 int(loaded_labels.labels.shape[1]),
                 int(loaded_labels.labels.shape[0]),
@@ -247,6 +250,7 @@ class ImageSession:
                 ternary_path=label_path,
                 ternary_size=label_size,
                 ternary_role=label_role,
+                ternary_sha256=loaded_labels.fingerprint.sha256,
             )
         try:
             current_output_fingerprint = fingerprint_file(pair.output_path)

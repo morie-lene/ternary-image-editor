@@ -54,7 +54,9 @@ TERNARY_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg"})
 TERNARY_JPEG_EXTENSIONS = frozenset({".jpg", ".jpeg"})
 PAIR_SUFFIX_LENGTH = 27
 
-JPEG_QUANTIZATION_RULE = "srgb-nearest-black-gray-white-v1"
+SRGB_TERNARY_QUANTIZATION_RULE = "srgb-nearest-black-gray-white-v1"
+# 旧名は外部参照との互換用。入力JPEGと外部出力PNGで同じ規則を使う。
+JPEG_QUANTIZATION_RULE = SRGB_TERNARY_QUANTIZATION_RULE
 
 MIN_ZOOM = 0.05
 MAX_ZOOM = 64.0

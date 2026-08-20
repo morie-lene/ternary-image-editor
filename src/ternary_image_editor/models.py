@@ -103,6 +103,9 @@ class TernaryImportReport:
     quantized: bool = False
     quantization_rule: str | None = None
     label_counts: tuple[int, int, int] = (0, 0, 0)
+    recovered_output: bool = False
+    recovery_reason: str | None = None
+    source_mode: str | None = None
 
     @property
     def total_pixels(self) -> int:

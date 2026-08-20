@@ -140,7 +140,7 @@ class MainWindow(QMainWindow):
         self._output_errors: dict[int, str] = {}
         self._transient_open_errors: dict[int, str] = {}
         self._output_error_snapshots: dict[int, tuple[Any, ...]] = {}
-        self._accepted_input_fallbacks: set[int] = set()
+        self._accepted_input_fallbacks: dict[int, tuple[Any, ...]] = {}
         self._active_job: _ActiveJob | None = None
         self._jobs: dict[int, _ActiveJob] = {}
         self._latest_component_token: TaskToken | None = None
@@ -347,13 +347,20 @@ class MainWindow(QMainWindow):
         """
 
         self._ensure_direct_transition_allowed()
+        fallback_output_snapshot: tuple[Any, ...] | None = None
         if source is None:
             if not 0 <= index < len(self._pairs):
                 return False
             resolved_source = self._choose_edit_source(self._pairs[index], index)
+            if resolved_source == EditSource.INPUT:
+                fallback_output_snapshot = self._accepted_input_fallbacks.get(index)
         else:
             resolved_source = source
-        return self._open_pair(index, resolved_source)
+        return self._open_pair(
+            index,
+            resolved_source,
+            fallback_output_snapshot=fallback_output_snapshot,
+        )
 
     def _ensure_direct_transition_allowed(self) -> None:
         """試験・埋込み用の直接入口にも通常GUIと同じ排他境界を課す。"""
@@ -387,7 +394,16 @@ class MainWindow(QMainWindow):
             return
         self._with_unsaved_resolution(
             "画像移動",
-            lambda: self._open_pair(index, source, jpeg_confirmed=jpeg_confirmed),
+            lambda: self._open_pair(
+                index,
+                source,
+                jpeg_confirmed=jpeg_confirmed,
+                fallback_output_snapshot=(
+                    self._accepted_input_fallbacks.get(index)
+                    if source == EditSource.INPUT
+                    else None
+                ),
+            ),
         )
 
     def request_save(self, *, continuation: Callable[[], None] | None = None) -> None:
@@ -1052,6 +1068,7 @@ class MainWindow(QMainWindow):
         output_error_snapshots: dict[int, tuple[Any, ...]] = {}
         for index, pair in enumerate(result.pairs):
             source = self._choose_edit_source(pair)
+            output_snapshot_retries = 1
             jpeg_confirmed = self._preconfirm_ternary_jpeg(pair, source)
             if jpeg_confirmed is None:
                 return None
@@ -1070,11 +1087,28 @@ class MainWindow(QMainWindow):
                     PairDimensionError,
                 ) as exc:
                     if self._is_output_read_error(exc, pair, source):
-                        output_errors[index] = str(exc)
-                        output_error_snapshots[index] = self._output_snapshot(
-                            pair.output_path
+                        failed_snapshot, exact_snapshot = self._output_failure_snapshot(
+                            pair,
+                            exc,
                         )
-                        break
+                        current_snapshot = self._output_snapshot(pair.output_path)
+                        if (
+                            not exact_snapshot or failed_snapshot != current_snapshot
+                        ) and output_snapshot_retries > 0:
+                            output_snapshot_retries -= 1
+                            source = EditSource.OUTPUT
+                            jpeg_confirmed = False
+                            continue
+                        if failed_snapshot != current_snapshot:
+                            transient_errors[index] = self._output_changed_message(pair)
+                            break
+                        output_errors[index] = str(exc)
+                        output_error_snapshots[index] = failed_snapshot
+                        source = EditSource.INPUT
+                        jpeg_confirmed = self._preconfirm_ternary_jpeg(pair, source)
+                        if jpeg_confirmed is None:
+                            return None
+                        continue
                     pair_errors[index] = str(exc)
                     break
                 except Exception as exc:  # noqa: BLE001 - 読込preflight取引境界
@@ -1083,6 +1117,19 @@ class MainWindow(QMainWindow):
                         exc,
                     )
                     break
+                if source == EditSource.INPUT and index in output_error_snapshots:
+                    failed_snapshot = output_error_snapshots[index]
+                    if failed_snapshot != self._output_snapshot(pair.output_path):
+                        output_errors.pop(index, None)
+                        output_error_snapshots.pop(index, None)
+                        if output_snapshot_retries > 0:
+                            output_snapshot_retries -= 1
+                            source = EditSource.OUTPUT
+                            jpeg_confirmed = False
+                            prepared_session = ImageSession()
+                            continue
+                        transient_errors[index] = self._output_changed_message(pair)
+                        break
                 return _PreparedPairingOpen(
                     index=index,
                     source=source,
@@ -1198,7 +1245,14 @@ class MainWindow(QMainWindow):
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
 
     def _pair_item_text(self, index: int, pair: ImagePair) -> str:
-        if index in self._output_errors:
+        if (
+            index == self._current_index
+            and self.session.edit_source == EditSource.OUTPUT
+            and self.session.import_report.recovered_output
+            and self.session.import_requires_save
+        ):
+            output = "出力変換済・要保存"
+        elif index in self._output_errors:
             output = "出力不正"
         else:
             output = "出力あり" if pair.output_path.exists() else "出力なし"
@@ -1241,7 +1295,7 @@ class MainWindow(QMainWindow):
             return EditSource.INPUT
         if index is None or index not in self._accepted_input_fallbacks:
             return EditSource.OUTPUT
-        if self._output_error_snapshots.get(index) == self._output_snapshot(
+        if self._accepted_input_fallbacks.get(index) == self._output_snapshot(
             pair.output_path
         ):
             return EditSource.INPUT
@@ -1277,16 +1331,73 @@ class MainWindow(QMainWindow):
         index: int,
         pair: ImagePair,
         error: Exception,
-    ) -> None:
+    ) -> tuple[tuple[Any, ...], bool]:
+        snapshot, exact = self._output_failure_snapshot(pair, error)
         self._output_errors[index] = str(error)
         self._transient_open_errors.pop(index, None)
-        self._output_error_snapshots[index] = self._output_snapshot(pair.output_path)
-        self._accepted_input_fallbacks.discard(index)
+        self._output_error_snapshots[index] = snapshot
+        self._accepted_input_fallbacks.pop(index, None)
+        return snapshot, exact
+
+    def _output_failure_snapshot(
+        self,
+        pair: ImagePair,
+        error: Exception,
+    ) -> tuple[tuple[Any, ...], bool]:
+        """失敗を起こした内容へ結び付くsnapshotと、その厳密性を返す。"""
+
+        if isinstance(error, ImageValidationError) and error.observed_sha256 is not None:
+            return ("file", error.observed_sha256), True
+        if isinstance(error, PairDimensionError) and error.ternary_sha256 is not None:
+            return ("file", error.ternary_sha256), True
+        if (
+            isinstance(error, ExternalOutputModificationError)
+            and error.expected_sha256 is not None
+        ):
+            return ("file", error.expected_sha256), True
+        return self._output_snapshot(pair.output_path), False
+
+    @staticmethod
+    def _output_changed_message(pair: ImagePair) -> str:
+        return (
+            "編集済み画像が読込中に変更されました\n"
+            f"ファイル: {pair.output_path}"
+        )
+
+    def _retry_or_report_changed_output(
+        self,
+        index: int,
+        pair: ImagePair,
+        *,
+        report_pair_error: bool,
+        allow_output_fallback: bool,
+        output_snapshot_retries: int,
+    ) -> bool:
+        """古い失敗・許可を捨て、有限回だけ現在OUTPUTを再検査する。"""
+
+        self._clear_output_error(index)
+        if output_snapshot_retries > 0:
+            return self._open_pair(
+                index,
+                EditSource.OUTPUT,
+                jpeg_confirmed=False,
+                report_pair_error=report_pair_error,
+                allow_output_fallback=allow_output_fallback,
+                output_snapshot_retries=output_snapshot_retries - 1,
+            )
+        message = self._output_changed_message(pair)
+        self._transient_open_errors[index] = message
+        self._refresh_pair_items()
+        if report_pair_error:
+            show_error(self, "編集済み画像変更", message)
+        self._sync_list_selection()
+        self._update_interface()
+        return False
 
     def _clear_output_error(self, index: int) -> None:
         self._output_errors.pop(index, None)
         self._output_error_snapshots.pop(index, None)
-        self._accepted_input_fallbacks.discard(index)
+        self._accepted_input_fallbacks.pop(index, None)
 
     @staticmethod
     def _is_output_read_error(
@@ -1337,6 +1448,8 @@ class MainWindow(QMainWindow):
         jpeg_confirmed: bool = False,
         report_pair_error: bool = True,
         allow_output_fallback: bool = True,
+        output_snapshot_retries: int = 1,
+        fallback_output_snapshot: tuple[Any, ...] | None = None,
     ) -> bool:
         if not 0 <= index < len(self._pairs):
             return False
@@ -1350,29 +1463,72 @@ class MainWindow(QMainWindow):
                 return False
             jpeg_confirmed = True
         had_image = self.canvas.has_image
+        opening_session = (
+            ImageSession() if fallback_output_snapshot is not None else self.session
+        )
         try:
-            self.session.open_pair(
+            opening_session.open_pair(
                 pair,
                 source,
                 expected_size=self.expected_size,
                 allow_jpeg_import=jpeg_confirmed,
             )
+            if (
+                fallback_output_snapshot is not None
+                and fallback_output_snapshot != self._output_snapshot(pair.output_path)
+            ):
+                return self._retry_or_report_changed_output(
+                    index,
+                    pair,
+                    report_pair_error=report_pair_error,
+                    allow_output_fallback=allow_output_fallback,
+                    output_snapshot_retries=output_snapshot_retries,
+                )
+            if opening_session is not self.session:
+                self.session = opening_session
         except (
             ExternalOutputModificationError,
             ImageValidationError,
             PairDimensionError,
         ) as exc:
             if self._is_output_read_error(exc, pair, source):
-                self._record_output_error(index, pair, exc)
+                failed_snapshot, exact_snapshot = self._record_output_error(
+                    index,
+                    pair,
+                    exc,
+                )
+                current_snapshot = self._output_snapshot(pair.output_path)
+                should_retry_snapshot = (
+                    (not exact_snapshot and output_snapshot_retries > 0)
+                    or failed_snapshot != current_snapshot
+                )
+                if should_retry_snapshot:
+                    return self._retry_or_report_changed_output(
+                        index,
+                        pair,
+                        report_pair_error=report_pair_error,
+                        allow_output_fallback=allow_output_fallback,
+                        output_snapshot_retries=output_snapshot_retries,
+                    )
                 self._refresh_pair_items()
                 if allow_output_fallback and self._ask_input_fallback(exc):
-                    self._accepted_input_fallbacks.add(index)
+                    if failed_snapshot != self._output_snapshot(pair.output_path):
+                        return self._retry_or_report_changed_output(
+                            index,
+                            pair,
+                            report_pair_error=report_pair_error,
+                            allow_output_fallback=allow_output_fallback,
+                            output_snapshot_retries=output_snapshot_retries,
+                        )
+                    self._accepted_input_fallbacks[index] = failed_snapshot
                     return self._open_pair(
                         index,
                         EditSource.INPUT,
                         jpeg_confirmed=jpeg_confirmed,
                         report_pair_error=report_pair_error,
                         allow_output_fallback=allow_output_fallback,
+                        output_snapshot_retries=output_snapshot_retries,
+                        fallback_output_snapshot=failed_snapshot,
                     )
                 self._sync_list_selection()
                 self._update_interface()
@@ -1436,11 +1592,20 @@ class MainWindow(QMainWindow):
         self._refresh_pair_items()
         self._sync_list_selection()
         opened_parts = [f"{pair.ternary_stem} を開いた"]
-        if self.session.import_report.quantized:
+        if self.session.import_report.recovered_output:
+            opened_parts.append(
+                f"外部出力を三値化: {self.session.import_report.total_pixels}画素"
+            )
+            if self.session.import_report.recovery_reason is not None:
+                opened_parts.append(f"変換理由: {self.session.import_report.recovery_reason}")
+            opened_parts.append("RGB PNG保存が必要")
+        elif self.session.import_report.quantized:
             opened_parts.append(
                 f"JPEGを三値化: {self.session.import_report.total_pixels}画素"
             )
             opened_parts.append("PNG保存が必要")
+        if source == EditSource.INPUT and index in self._output_errors:
+            opened_parts.append("編集済み画像を使用不可: 入力三値画像を使用")
         if self.session.normalization.changed:
             opened_parts.append(
                 f"下端保護領域を無へ正規化: "
@@ -1521,6 +1686,11 @@ class MainWindow(QMainWindow):
                     jpeg_confirmed=jpeg_confirmed,
                     report_pair_error=False,
                     allow_output_fallback=False,
+                    fallback_output_snapshot=(
+                        self._accepted_input_fallbacks.get(target)
+                        if source == EditSource.INPUT
+                        else None
+                    ),
                 ):
                     return
                 if not any(
@@ -2234,7 +2404,9 @@ class MainWindow(QMainWindow):
             document_state = "読込済み・未変更"
         if self.session.normalization.changed:
             document_state += f"｜下端正規化 {self.session.normalization.changed_pixels}画素"
-        if self.session.import_report.quantized:
+        if self.session.import_report.recovered_output:
+            document_state += "｜外部出力三値化"
+        elif self.session.import_report.quantized:
             document_state += "｜JPEG三値化"
         if self._active_job is not None:
             return f"{document_state}｜処理中: {self._active_job.description}"
