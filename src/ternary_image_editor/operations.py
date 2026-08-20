@@ -79,6 +79,21 @@ class SmallComponentsResult:
         return tuple(component.bbox for component in self.components)
 
 
+@dataclass(frozen=True, slots=True)
+class BrushSegmentFootprint:
+    """一つの増分筆区間が占める局所maskと半開矩形。"""
+
+    bbox: BoundingBox
+    mask: NDArray[np.bool_]
+
+    def __post_init__(self) -> None:
+        left, top, right, bottom = self.bbox
+        if left < 0 or top < 0 or left >= right or top >= bottom:
+            raise ValueError("筆跡矩形は非負の非空半開矩形でなければならない")
+        if self.mask.dtype != np.bool_ or self.mask.shape != (bottom - top, right - left):
+            raise ValueError("筆跡maskの寸法が筆跡矩形と一致しない")
+
+
 def validate_labels(labels: NDArray[np.uint8], *, name: str = "labels") -> None:
     """内部ラベル配列の形、型、値域を検証する。"""
 
@@ -284,18 +299,40 @@ def paint_brush_increment(
     new_label: int | Label,
     diameter: int,
     brush_shape: BrushShape = "circle",
-) -> None:
+) -> BoundingBox | None:
     """進行中の筆操作の一点または一区間を作業配列へ直接適用する。
 
     ``end`` が ``None`` なら開始点一つ、指定済みなら ``start`` から
     ``end`` までの線分だけを描く。筆操作全体が画像内で開始済みであることは
     呼出側の責任とし、画像外から再進入する一区間も画像矩形で切り詰める。
+    実際に変更した時は変更画素を含む半開矩形を返し、無変更なら ``None``
+    を返す。
     """
 
-    validate_labels(labels)
+    footprint = brush_segment_footprint(
+        labels.shape,
+        start,
+        end,
+        diameter,
+        brush_shape,
+    )
+    if footprint is None:
+        return None
+    return paint_brush_footprint(labels, footprint, new_label)
+
+
+def brush_segment_footprint(
+    image_shape: tuple[int, int],
+    start: tuple[float, float],
+    end: tuple[float, float] | None,
+    diameter: int,
+    brush_shape: BrushShape = "circle",
+) -> BrushSegmentFootprint | None:
+    """増分筆の幾何学的な局所maskを、ラベル変更の有無と独立に返す。"""
+
+    shape_height, shape_width = _validated_image_shape(image_shape)
     start_point = _validated_point(start, name="start")
     end_point = None if end is None else _validated_point(end, name="end")
-    replacement = _validated_label(new_label, name="new_label")
     brush_diameter = _validated_integer(
         diameter,
         name="diameter",
@@ -304,19 +341,61 @@ def paint_brush_increment(
     )
     shape = _validated_brush_shape(brush_shape)
 
-    mask = np.zeros(labels.shape, dtype=np.bool_)
+    start_anchor = _point_to_anchor(start_point)
+    end_anchor = start_anchor if end_point is None else _point_to_anchor(end_point)
+    roi = _brush_segment_roi(
+        (shape_height, shape_width),
+        start_anchor,
+        end_anchor,
+        brush_diameter,
+    )
+    if roi is None:
+        return None
+
+    left, top, right, bottom = roi
+    mask = np.zeros((bottom - top, right - left), dtype=np.bool_)
+    template = brush_shape_mask(brush_diameter, shape)
     if end_point is None:
-        _add_discrete_stamp(mask, _point_to_anchor(start_point), brush_diameter, shape)
-    else:
-        _add_discrete_segment(
+        _add_template_stamp(
             mask,
-            _point_to_anchor(start_point),
-            _point_to_anchor(end_point),
-            brush_diameter,
-            shape,
+            (start_anchor[0] - left, start_anchor[1] - top),
+            template,
+            protect_rows=False,
         )
-    _exclude_protected_rows(mask)
-    labels[mask] = replacement
+    else:
+        for anchor_x, anchor_y in _line_anchors(start_anchor, end_anchor):
+            _add_template_stamp(
+                mask,
+                (anchor_x - left, anchor_y - top),
+                template,
+                protect_rows=False,
+            )
+
+    if not mask.any():
+        return None
+    return BrushSegmentFootprint(roi, mask)
+
+
+def paint_brush_footprint(
+    labels: NDArray[np.uint8],
+    footprint: BrushSegmentFootprint,
+    new_label: int | Label,
+) -> BoundingBox | None:
+    """計算済み局所筆跡をラベルへ適用し、実変更がある時だけ矩形を返す。"""
+
+    validate_labels(labels)
+    replacement = _validated_label(new_label, name="new_label")
+    left, top, right, bottom = footprint.bbox
+    height, width = labels.shape
+    if not (0 <= left < right <= width and 0 <= top < bottom <= height):
+        raise ValueError("筆跡矩形がラベル画像の範囲外")
+
+    target = labels[top:bottom, left:right]
+    changed = footprint.mask & (target != replacement)
+    if not changed.any():
+        return None
+    target[changed] = replacement
+    return footprint.bbox
 
 
 def flood_fill4(
@@ -667,6 +746,8 @@ def _add_template_stamp(
     result: NDArray[np.bool_],
     anchor: tuple[int, int],
     template: NDArray[np.bool_],
+    *,
+    protect_rows: bool = True,
 ) -> None:
     diameter = template.shape[0]
     offset = -((diameter - 1) // 2)
@@ -679,7 +760,8 @@ def _add_template_stamp(
     clipped_left = max(left, 0)
     clipped_top = max(top, 0)
     clipped_right = min(right, width)
-    clipped_bottom = min(bottom, height, protected_start_y(height))
+    editable_bottom = protected_start_y(height) if protect_rows else height
+    clipped_bottom = min(bottom, height, editable_bottom)
     if clipped_left >= clipped_right or clipped_top >= clipped_bottom:
         return
 
@@ -691,6 +773,28 @@ def _add_template_stamp(
         template_top:template_bottom,
         template_left:template_right,
     ]
+
+
+def _brush_segment_roi(
+    image_shape: tuple[int, int],
+    start: tuple[int, int],
+    end: tuple[int, int],
+    diameter: int,
+) -> BoundingBox | None:
+    """一点または線分の離散筆外接矩形を編集可能範囲へ切り詰める。"""
+
+    height, width = image_shape
+    offset = -((diameter - 1) // 2)
+    left = max(0, min(start[0], end[0]) + offset)
+    top = max(0, min(start[1], end[1]) + offset)
+    right = min(width, max(start[0], end[0]) + offset + diameter)
+    bottom = min(
+        protected_start_y(height),
+        max(start[1], end[1]) + offset + diameter,
+    )
+    if left >= right or top >= bottom:
+        return None
+    return left, top, right, bottom
 
 
 def _add_discrete_segment(
@@ -864,12 +968,14 @@ def _closed_circle_comparison(
 
 __all__ = [
     "BoundingBox",
+    "BrushSegmentFootprint",
     "BrushShape",
     "SmallComponent",
     "SmallComponentsResult",
     "alpha_composite",
     "brush_editable",
     "brush_footprint_mask",
+    "brush_segment_footprint",
     "brush_shape_mask",
     "find_small_components",
     "flood_fill4",
@@ -878,6 +984,7 @@ __all__ = [
     "gimp_lighten_composite",
     "labels_to_rgb",
     "paint_brush",
+    "paint_brush_footprint",
     "paint_brush_increment",
     "pseudocolorize",
     "stroke_mask",

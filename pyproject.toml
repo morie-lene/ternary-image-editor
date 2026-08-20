@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ternary-image-editor"
-version = "0.7.0"
+version = "0.8.0"
 description = "Windows desktop editor for paired source and ternary-label images"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
@@ -32,7 +32,18 @@ packages = ["src/ternary_image_editor"]
 [tool.hatch.build.targets.sdist]
 artifacts = [
   "docs/display-comparison-addendum.md",
+  "docs/test-strategy.md",
+  "docs/transient-memo-layer-addendum.md",
+  "docs/local-verification-2026-08-20-local-acceptance.md",
+  "docs/local-verification-2026-08-20-transient-memo.md",
+  "docs/local-verification-2026-08-21-headed-macos.md",
+  "scripts/verify_isolated_workflow.py",
   "tests/test_display_comparison_contract.py",
+  "tests/test_external_process_conflicts.py",
+  "tests/test_isolated_distribution_workflow.py",
+  "tests/test_transient_memo_layer_contract.py",
+  "tests/test_memo_history.py",
+  "tests/test_real_size_workflow.py",
 ]
 
 [tool.pytest.ini_options]
@@ -40,7 +51,7 @@ addopts = "-ra"
 testpaths = ["tests"]
 qt_api = "pyside6"
 markers = [
-  "performance: target-hardware performance probes",
+  "performance: comparative local performance probes; not target-hardware acceptance",
   "windows: checks requiring a Windows host",
 ]
 

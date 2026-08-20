@@ -873,6 +873,7 @@ class SettingsDialog(QDialog):
             "WheelDown": "画布上の指示位置を中心とする縮小",
             "MouseMiddle": "中央ボタンのドラッグによる自由移動",
             "MouseLeft": "左ボタンによる描画・塗り潰し",
+            "MouseRight": "右ボタンによる一時メモ描画",
         }
         effect = fixed_effects.get(pointer_base(binding))
         if effect is None:

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .constants import MAX_HISTORY_BYTES, MAX_HISTORY_OPERATIONS
+from .memo_history import MemoDelta
 
 UInt8Array = NDArray[np.uint8]
 UInt32Array = NDArray[np.uint32]
@@ -77,9 +78,31 @@ def make_pixel_delta(
 
 @dataclass(frozen=True, slots=True)
 class HistoryEntry:
-    delta: PixelDelta
+    delta: PixelDelta | None
+    memo_delta: MemoDelta | None
+    description: str
     before_state_id: int
     after_state_id: int
+
+    def __post_init__(self) -> None:
+        if self.delta is None and self.memo_delta is None:
+            raise ValueError("履歴項目にはラベル差分またはメモ差分が必要")
+        if self.delta is None and self.before_state_id != self.after_state_id:
+            raise ValueError("メモ単独履歴はラベル状態IDを進めてはならない")
+        if self.delta is not None and self.before_state_id == self.after_state_id:
+            raise ValueError("ラベル履歴はラベル状態IDを進めなければならない")
+        if (
+            self.delta is not None
+            and self.memo_delta is not None
+            and self.delta.shape != self.memo_delta.shape
+        ):
+            raise ValueError("ラベル差分とメモ差分の画像寸法が一致しない")
+
+    @property
+    def memory_bytes(self) -> int:
+        label_bytes = 0 if self.delta is None else self.delta.memory_bytes
+        memo_bytes = 0 if self.memo_delta is None else self.memo_delta.memory_bytes
+        return label_bytes + memo_bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +114,6 @@ class HistoryTrimReport:
     @property
     def trimmed(self) -> bool:
         return self.dropped_operations > 0
-
 
 class HistoryManager:
     """一画像セッションだけに属するUndo・Redo履歴。"""
@@ -141,6 +163,18 @@ class HistoryManager:
         return self._entries[self._cursor - 1].after_state_id
 
     @property
+    def current_entry(self) -> HistoryEntry | None:
+        return None if self._cursor == 0 else self._entries[self._cursor - 1]
+
+    @property
+    def next_undo_entry(self) -> HistoryEntry | None:
+        return None if not self.can_undo else self._entries[self._cursor - 1]
+
+    @property
+    def next_redo_entry(self) -> HistoryEntry | None:
+        return None if not self.can_redo else self._entries[self._cursor]
+
+    @property
     def saved_state_id(self) -> int | None:
         return self._saved_state_id
 
@@ -166,28 +200,77 @@ class HistoryManager:
     def mark_saved(self) -> None:
         self._saved_state_id = self.current_state_id
 
-    def record(self, delta: PixelDelta | None) -> HistoryTrimReport:
+    def record(
+        self,
+        delta: PixelDelta | None,
+        *,
+        memo_delta: MemoDelta | None = None,
+        description: str | None = None,
+    ) -> HistoryTrimReport:
         """既に適用済みの一操作を履歴へ積む。"""
 
-        if delta is None or delta.changed_pixels == 0:
+        if delta is not None and delta.changed_pixels == 0:
+            delta = None
+        if memo_delta is not None and memo_delta.changed_pixels == 0:
+            memo_delta = None
+        if delta is None and memo_delta is None:
             return HistoryTrimReport()
+        if description is None:
+            description = (
+                delta.description if delta is not None else memo_delta.description
+            )
         self._discard_redo_branch()
+        before_state_id = self.current_state_id
         entry = HistoryEntry(
             delta=delta,
-            before_state_id=self.current_state_id,
-            after_state_id=self._allocate_state_id(),
+            memo_delta=memo_delta,
+            description=description,
+            before_state_id=before_state_id,
+            after_state_id=(
+                self._allocate_state_id() if delta is not None else before_state_id
+            ),
         )
         was_saved_reachable = self.saved_state_reachable
         self._entries.append(entry)
         self._cursor += 1
-        self._total_bytes += delta.memory_bytes
+        self._total_bytes += entry.memory_bytes
+        return self._trim(was_saved_reachable=was_saved_reachable)
+
+    def discard_memo(self) -> None:
+        """メモ単独項目を除き、複合項目をラベル差分だけへ縮退する。"""
+
+        applied = self._without_memo(self._entries[: self._cursor])
+        redo = self._without_memo(self._entries[self._cursor :])
+        self._entries = [*applied, *redo]
+        self._cursor = len(applied)
+        self._total_bytes = sum(entry.memory_bytes for entry in self._entries)
+
+    def undo(self, labels: UInt8Array) -> HistoryEntry | None:
+        if not self.can_undo:
+            return None
+        entry = self._entries[self._cursor - 1]
+        if entry.delta is not None:
+            entry.delta.apply_backward(labels)
+        self._cursor -= 1
+        return entry
+
+    def redo(self, labels: UInt8Array) -> HistoryEntry | None:
+        if not self.can_redo:
+            return None
+        entry = self._entries[self._cursor]
+        if entry.delta is not None:
+            entry.delta.apply_forward(labels)
+        self._cursor += 1
+        return entry
+
+    def _trim(self, *, was_saved_reachable: bool) -> HistoryTrimReport:
         dropped_operations = 0
         dropped_bytes = 0
         while len(self._entries) > self.max_operations or self._total_bytes > self.max_bytes:
             oldest = self._entries.pop(0)
             dropped_operations += 1
-            dropped_bytes += oldest.delta.memory_bytes
-            self._total_bytes -= oldest.delta.memory_bytes
+            dropped_bytes += oldest.memory_bytes
+            self._total_bytes -= oldest.memory_bytes
             if self._cursor > 0:
                 self._cursor -= 1
                 self._base_state_id = oldest.after_state_id
@@ -197,28 +280,21 @@ class HistoryManager:
             saved_state_became_unreachable=(was_saved_reachable and not self.saved_state_reachable),
         )
 
-    def undo(self, labels: UInt8Array) -> PixelDelta | None:
-        if not self.can_undo:
-            return None
-        entry = self._entries[self._cursor - 1]
-        entry.delta.apply_backward(labels)
-        self._cursor -= 1
-        return entry.delta
-
-    def redo(self, labels: UInt8Array) -> PixelDelta | None:
-        if not self.can_redo:
-            return None
-        entry = self._entries[self._cursor]
-        entry.delta.apply_forward(labels)
-        self._cursor += 1
-        return entry.delta
-
     def _discard_redo_branch(self) -> None:
         if self._cursor == len(self._entries):
             return
         removed = self._entries[self._cursor :]
-        self._total_bytes -= sum(entry.delta.memory_bytes for entry in removed)
+        self._total_bytes -= sum(entry.memory_bytes for entry in removed)
         del self._entries[self._cursor :]
+
+    @staticmethod
+    def _without_memo(entries: list[HistoryEntry]) -> list[HistoryEntry]:
+        result: list[HistoryEntry] = []
+        for entry in entries:
+            if entry.delta is None:
+                continue
+            result.append(replace(entry, memo_delta=None))
+        return result
 
     def _reachable_state_ids(self) -> set[int]:
         return {self._base_state_id, *(entry.after_state_id for entry in self._entries)}

@@ -67,16 +67,18 @@ from .errors import (
     ImageValidationError,
     PairDimensionError,
 )
-from .history import HistoryTrimReport
-from .image_io import fingerprint_file
+from .history import HistoryEntry, HistoryTrimReport
+from .image_io import fingerprint_file, normalized_protected_labels_copy
+from .memo_history import MemoDelta
 from .models import EditSource, ImagePair, PairingMode, PairingResult
 from .operations import (
     SmallComponentsResult,
+    brush_segment_footprint,
     find_small_components,
     flood_fill4,
     generate_boundary_non_none_side,
     generate_boundary_none_side,
-    paint_brush_increment,
+    paint_brush_footprint,
 )
 from .pairing import finalize_pairing, plan_pairing
 from .session import Activity, ImageSession
@@ -218,13 +220,20 @@ class MainWindow(QMainWindow):
             )
             modal = QApplication.activeModalWidget()
             if belongs_to_window and (modal is None or modal is self):
-                if self._stroke_before is not None:
+                if self._stroke_before is not None or self.canvas.memo_stroke_active:
+                    if event_type == QEvent.Type.KeyRelease:
+                        # 進行中操作へ新命令は割り込ませないが、既に押下済みの
+                        # HOLD解放だけは必ず通し、Space等の状態を残留させない。
+                        self.action_registry.dispatch_event(event)
                     if (
                         event_type == QEvent.Type.KeyPress
                         and event.key() == Qt.Key.Key_Escape
                         and not event.isAutoRepeat()
                     ):
-                        self._cancel_active_brush("筆跡を取消｜理由：Esc入力")
+                        if self.canvas.memo_stroke_active:
+                            self.canvas.cancel_memo_stroke("メモ取消｜理由：Esc入力")
+                        else:
+                            self._cancel_active_brush("筆跡を取消｜理由：Esc入力")
                     return True
                 text_input = self._is_editable_input(watched) or self._text_input_has_focus()
                 if self.action_registry.dispatch_event(
@@ -240,7 +249,7 @@ class MainWindow(QMainWindow):
             return super().eventFilter(watched, event)
 
         if event_type == QEvent.Type.Wheel and isinstance(event, QWheelEvent):
-            if self._stroke_before is not None:
+            if self._stroke_before is not None or self.canvas.memo_stroke_active:
                 return True
             try:
                 delta_y = event.angleDelta().y() or event.pixelDelta().y()
@@ -254,7 +263,7 @@ class MainWindow(QMainWindow):
             QEvent.Type.MouseButtonPress,
             QEvent.Type.MouseButtonDblClick,
         }:
-            if self._stroke_before is not None:
+            if self._stroke_before is not None or self.canvas.memo_stroke_active:
                 return True
             # Spaceや一時パンGUIとの組合せはMouseLeft単体とは別の既存操作だ。
             # 左割当を設けても、その退避経路まで奪わない。
@@ -283,10 +292,17 @@ class MainWindow(QMainWindow):
                 return True
 
         if (
-            self._stroke_before is not None
+            (self._stroke_before is not None or self.canvas.memo_stroke_active)
             and isinstance(event, QMouseEvent)
             and event_type == QEvent.Type.MouseButtonRelease
-            and event.button() != Qt.MouseButton.LeftButton
+            and not (
+                self.canvas.memo_stroke_active
+                and event.button() == Qt.MouseButton.RightButton
+            )
+            and not (
+                self._stroke_before is not None
+                and event.button() == Qt.MouseButton.LeftButton
+            )
         ):
             return True
         return super().eventFilter(watched, event)
@@ -294,6 +310,7 @@ class MainWindow(QMainWindow):
     def _release_pointer_inputs(self) -> None:
         self._active_pointer_bindings.clear()
         self.action_registry.release_all_holds()
+        self.canvas.cancel_memo_stroke("メモ取消｜理由：入力状態の解除")
 
     def _cancel_active_brush(self, reason: str) -> None:
         if self._stroke_before is None:
@@ -417,6 +434,9 @@ class MainWindow(QMainWindow):
             return
         if self._stroke_before is not None:
             self._message("保存不可：筆操作が未確定")
+            return
+        if self.canvas.memo_stroke_active:
+            self._message("保存不可｜メモ一筆が未確定")
             return
         assert self.session.pair is not None
         allow_existing_output = False
@@ -731,6 +751,10 @@ class MainWindow(QMainWindow):
         self.canvas.brush_moved.connect(self._brush_moved)
         self.canvas.brush_finished.connect(self._brush_finished)
         self.canvas.brush_cancelled.connect(self._cancel_brush)
+        self.canvas.memo_stroke_committed.connect(self._memo_stroke_committed)
+        self.canvas.memo_stroke_active_changed.connect(
+            lambda _active: self._update_interface()
+        )
         self.canvas.protected_cursor_changed.connect(self._protected_cursor_changed)
         self.canvas.fill_requested.connect(self._request_fill)
         self.canvas.cursor_position_changed.connect(self._cursor_changed)
@@ -741,7 +765,7 @@ class MainWindow(QMainWindow):
 
     def _operation_is_enabled(self, operation_id: str) -> bool:
         loaded = self.session.is_loaded
-        stroke = self._stroke_before is not None
+        stroke = self._stroke_before is not None or self.canvas.memo_stroke_active
         blocking = self._job_is_blocking()
         transition = not blocking and not stroke
         labels_visible = self._labels_are_visible()
@@ -755,9 +779,23 @@ class MainWindow(QMainWindow):
         if operation_id == "app.exit":
             return not stroke
         if operation_id == "edit.undo":
-            return loaded and labels_visible and transition and self.session.can_undo
+            return (
+                loaded
+                and transition
+                and self._history_entry_is_available(
+                    self.session.history.next_undo_entry,
+                    labels_visible=labels_visible,
+                )
+            )
         if operation_id == "edit.redo":
-            return loaded and labels_visible and transition and self.session.can_redo
+            return (
+                loaded
+                and transition
+                and self._history_entry_is_available(
+                    self.session.history.next_redo_entry,
+                    labels_visible=labels_visible,
+                )
+            )
         if operation_id == "navigate.previous-image":
             return (
                 transition
@@ -1727,33 +1765,66 @@ class MainWindow(QMainWindow):
 
     def _undo(self) -> None:
         if (
-            not self._labels_are_visible()
-            or self._job_is_blocking()
+            self._job_is_blocking()
             or self._stroke_before is not None
+            or self.canvas.memo_stroke_active
             or not self.session.is_loaded
         ):
             return
-        before_revision = self.session.revision
-        self.session.undo()
-        if self.session.revision != before_revision:
+        candidate = self.session.history.next_undo_entry
+        if not self._history_entry_is_available(
+            candidate,
+            labels_visible=self._labels_are_visible(),
+        ):
+            return
+        entry = self.session.undo()
+        if entry is None:
+            return
+        if entry.memo_delta is not None:
+            self.canvas.apply_memo_delta(entry.memo_delta, forward=False)
+        if entry.delta is not None:
             assert self.session.labels is not None
             self.canvas.refresh_labels(self.session.labels)
             self._after_label_change("Undo")
+        else:
+            self._after_memo_change(f"Undo｜{entry.description}")
 
     def _redo(self) -> None:
         if (
-            not self._labels_are_visible()
-            or self._job_is_blocking()
+            self._job_is_blocking()
             or self._stroke_before is not None
+            or self.canvas.memo_stroke_active
             or not self.session.is_loaded
         ):
             return
-        before_revision = self.session.revision
-        self.session.redo()
-        if self.session.revision != before_revision:
+        candidate = self.session.history.next_redo_entry
+        if not self._history_entry_is_available(
+            candidate,
+            labels_visible=self._labels_are_visible(),
+        ):
+            return
+        entry = self.session.redo()
+        if entry is None:
+            return
+        if entry.memo_delta is not None:
+            self.canvas.apply_memo_delta(entry.memo_delta, forward=True)
+        if entry.delta is not None:
             assert self.session.labels is not None
             self.canvas.refresh_labels(self.session.labels)
             self._after_label_change("Redo")
+        else:
+            self._after_memo_change(f"Redo｜{entry.description}")
+
+    def _memo_stroke_committed(self, delta: MemoDelta) -> None:
+        try:
+            trim_report = self.session.record_memo(delta, "メモ一筆")
+        except Exception as exception:
+            self.canvas.apply_memo_delta(delta, forward=False)
+            show_error(self, "メモ履歴エラー", str(exception))
+            self._message("メモ履歴エラー｜一筆を破棄")
+            self._update_interface()
+            return
+        self._after_memo_change("メモ一筆", trim_report)
 
     def _brush_started(self, x: float, y: float) -> None:
         if (
@@ -1769,6 +1840,7 @@ class MainWindow(QMainWindow):
         self._stroke_diameter = self.controls.brush_diameter.value()
         self._stroke_shape = str(self.controls.brush_shape.currentData())
         try:
+            self.canvas.begin_label_memo_erase()
             self._render_brush_preview((x, y), None)
         except Exception:
             self._cancel_active_brush("筆入力エラー｜筆跡を取消｜編集への反映なし")
@@ -1793,15 +1865,23 @@ class MainWindow(QMainWindow):
     ) -> None:
         assert self._stroke_before is not None
         assert self.session.labels is not None
-        paint_brush_increment(
-            self.session.labels,
+        footprint = brush_segment_footprint(
+            self.session.labels.shape,
             start,
             end,
-            self._stroke_label,
             self._stroke_diameter,
             self._stroke_shape,
         )
-        self.canvas.refresh_labels(self.session.labels)
+        if footprint is None:
+            return
+        dirty_bbox = paint_brush_footprint(
+            self.session.labels,
+            footprint,
+            self._stroke_label,
+        )
+        self.canvas.stage_label_memo_erase(footprint)
+        if dirty_bbox is not None:
+            self.canvas.refresh_label_region(self.session.labels, dirty_bbox)
 
     def _brush_finished(self) -> None:
         if self._stroke_before is None or self.session.labels is None:
@@ -1810,9 +1890,19 @@ class MainWindow(QMainWindow):
         self._stroke_before = None
         self._stroke_last_point = None
         before_revision = self.session.revision
+        memo_delta = None
         try:
-            trim_report = self.session.commit_preapplied(before, "筆")
+            memo_delta = self.canvas.finish_label_memo_erase("筆によるメモ消去")
+            trim_report = self.session.commit_preapplied(
+                before,
+                "筆",
+                memo_delta=memo_delta,
+            )
         except Exception:
+            if memo_delta is not None:
+                self.canvas.apply_memo_delta(memo_delta, forward=False)
+            else:
+                self.canvas.cancel_label_memo_erase()
             if self.session.labels is not None and self.session.labels.shape == before.shape:
                 self.session.labels[...] = before
                 self.canvas.refresh_labels(self.session.labels)
@@ -1821,6 +1911,8 @@ class MainWindow(QMainWindow):
             raise
         if self.session.revision != before_revision:
             self._after_label_change("筆描画", trim_report)
+        elif memo_delta is not None:
+            self._after_memo_change("筆によるメモ消去", trim_report)
         else:
             self._message("同色のため変更しなかった")
             self._update_interface()
@@ -1831,6 +1923,7 @@ class MainWindow(QMainWindow):
         before = self._stroke_before
         self._stroke_before = None
         self._stroke_last_point = None
+        self.canvas.cancel_label_memo_erase()
         if self.session.labels is not None and self.session.labels.shape == before.shape:
             self.session.labels[...] = before
             self.canvas.refresh_labels(self.session.labels)
@@ -1885,10 +1978,36 @@ class MainWindow(QMainWindow):
         )
 
     def _apply_generated_labels(self, labels: np.ndarray, description: str) -> None:
+        assert self.session.labels is not None
+        normalized, _changed_protected = normalized_protected_labels_copy(labels)
+        if normalized.shape != self.session.labels.shape:
+            raise ValueError("生成画像の寸法が現在画像と一致しない")
+        changed = np.flatnonzero(
+            self.session.labels.reshape(-1) != normalized.reshape(-1)
+        )
+        if self.session.labels.size > np.iinfo(np.uint32).max:
+            raise ValueError("画像画素数が履歴索引範囲を超える")
+        changed_indices = changed.astype(np.uint32, copy=False)
+        memo_delta = self.canvas.erase_memo_indices(
+            changed_indices,
+            f"{description}によるメモ消去",
+        )
         before_revision = self.session.revision
-        trim_report = self.session.apply_labels(labels, description)
+        try:
+            trim_report = self.session.apply_labels(
+                normalized,
+                description,
+                memo_delta=memo_delta,
+            )
+        except Exception:
+            if memo_delta is not None:
+                self.canvas.apply_memo_delta(memo_delta, forward=False)
+            raise
         if self.session.revision == before_revision:
-            self._message(f"{description}｜対象画素なし｜変更なし")
+            if memo_delta is not None:
+                self._after_memo_change(f"{description}によるメモ消去", trim_report)
+            else:
+                self._message(f"{description}｜対象画素なし｜変更なし")
             return
         assert self.session.labels is not None
         self.canvas.refresh_labels(self.session.labels)
@@ -1914,6 +2033,21 @@ class MainWindow(QMainWindow):
         self._update_interface()
         if not self._close_after_activity:
             self._request_components()
+        self._message(message)
+
+    def _after_memo_change(
+        self,
+        description: str,
+        trim_report: HistoryTrimReport | None = None,
+    ) -> None:
+        if trim_report is not None and trim_report.trimmed:
+            message = (
+                f"{description}｜履歴上限により古い"
+                f"{trim_report.dropped_operations}操作を破棄"
+            )
+        else:
+            message = description
+        self._update_interface()
         self._message(message)
 
     def _set_small_components(self, enabled: bool) -> None:
@@ -1984,6 +2118,8 @@ class MainWindow(QMainWindow):
         )
 
     def _save_succeeded(self, continuation: Callable[[], None] | None) -> None:
+        self.session.discard_memo_history()
+        self.canvas.clear_memo()
         self._needs_initial_overwrite_confirmation = False
         if self._current_index is not None:
             self._clear_output_error(self._current_index)
@@ -2216,7 +2352,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("view/ternaryVisible", visible)
         if not visible:
             self.protection_status.setText("保護: 三値画像非表示・編集停止")
-            self._message("三値画像を非表示｜画素編集・元に戻す・やり直すを停止")
+            self._message("三値画像を非表示｜画素編集とラベル履歴操作を停止")
         self._update_interface()
 
     def _set_opacity(self, percent: int) -> None:
@@ -2309,7 +2445,9 @@ class MainWindow(QMainWindow):
         loaded = self.session.is_loaded
         busy = self._active_job is not None
         blocking = self._job_is_blocking()
-        stroke_active = self._stroke_before is not None
+        label_stroke_active = self._stroke_before is not None
+        memo_stroke_active = self.canvas.memo_stroke_active
+        stroke_active = label_stroke_active or memo_stroke_active
         labels_visible = self.controls.ternary_visible.isChecked()
         index = self._current_index
         output_writable = self._pairing_result.output_writable
@@ -2329,17 +2467,21 @@ class MainWindow(QMainWindow):
         self.save_action.setEnabled(loaded and transition_available and output_writable)
         self.undo_action.setEnabled(
             loaded
-            and labels_visible
             and not blocking
             and not stroke_active
-            and self.session.can_undo
+            and self._history_entry_is_available(
+                self.session.history.next_undo_entry,
+                labels_visible=labels_visible,
+            )
         )
         self.redo_action.setEnabled(
             loaded
-            and labels_visible
             and not blocking
             and not stroke_active
-            and self.session.can_redo
+            and self._history_entry_is_available(
+                self.session.history.next_redo_entry,
+                labels_visible=labels_visible,
+            )
         )
         self.actual_size_action.setEnabled(loaded and not stroke_active)
         self.fit_action.setEnabled(loaded and not stroke_active)
@@ -2351,8 +2493,9 @@ class MainWindow(QMainWindow):
             loaded and labels_visible and not blocking and not stroke_active
         )
         self.controls.boundary_group.setEnabled(loaded and labels_visible and transition_available)
-        self.controls.set_inspection_available(loaded and not blocking)
+        self.controls.set_inspection_available(loaded and not blocking and not stroke_active)
         self.canvas.editing_enabled = loaded and labels_visible and not blocking
+        self.canvas.memo_enabled = loaded and not blocking and not label_stroke_active
         self.image_list.setEnabled(transition_available)
         self.error_list.setEnabled(transition_available)
 
@@ -2419,6 +2562,16 @@ class MainWindow(QMainWindow):
 
     def _labels_are_visible(self) -> bool:
         return self.controls.ternary_visible.isChecked()
+
+    @staticmethod
+    def _history_entry_is_available(
+        entry: HistoryEntry | None,
+        *,
+        labels_visible: bool,
+    ) -> bool:
+        if entry is None:
+            return False
+        return labels_visible or entry.delta is None
 
     def _pixel_is_protected(self, y: float | int) -> bool:
         labels = self.session.labels
@@ -2529,6 +2682,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt API
         if self._stroke_before is not None:
             self._cancel_brush("筆跡を取消｜理由：終了操作")
+        if self.canvas.memo_stroke_active:
+            self.canvas.cancel_memo_stroke("メモ取消｜理由：終了操作")
         if self._allow_close_once:
             self._persist_current_settings()
             self._remove_application_event_filter()

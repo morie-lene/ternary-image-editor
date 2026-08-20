@@ -1,0 +1,72 @@
+{
+  "acceptance_boundary": "same-process offscreen comparison; not Windows input-to-photon acceptance",
+  "application_version": "0.7.1",
+  "benchmark": "brush-responsiveness-local-ab-v1",
+  "cases": [
+    {
+      "case": "actual-size-no-grid",
+      "iterations": 64,
+      "legacy_full_refresh_surrogate": {
+        "max_ms": 20.501,
+        "p50_ms": 18.25,
+        "p95_ms": 19.369
+      },
+      "measured_samples": 60,
+      "p50_reduction_percent": 92.0,
+      "p50_speedup": 12.45,
+      "regional_refresh": {
+        "max_ms": 1.584,
+        "p50_ms": 1.466,
+        "p95_ms": 1.497
+      },
+      "warmup_samples_excluded": 4
+    },
+    {
+      "case": "scale-8-auto-grid",
+      "iterations": 44,
+      "legacy_full_refresh_surrogate": {
+        "max_ms": 32.623,
+        "p50_ms": 32.2,
+        "p95_ms": 32.471
+      },
+      "measured_samples": 40,
+      "p50_reduction_percent": 95.0,
+      "p50_speedup": 20.0,
+      "regional_refresh": {
+        "max_ms": 1.755,
+        "p50_ms": 1.61,
+        "p95_ms": 1.72
+      },
+      "warmup_samples_excluded": 4
+    }
+  ],
+  "environment": {
+    "machine": "arm64",
+    "numpy": "2.4.6",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "pyside6": "6.11.1",
+    "python": "3.11.15",
+    "qt_platform": "offscreen"
+  },
+  "parameters": {
+    "brush_diameter": 5,
+    "canvas": [
+      1200,
+      800
+    ],
+    "image": [
+      2048,
+      1536
+    ],
+    "percentile_method": "nearest-rank",
+    "scope": "pointer update, brush operation, label refresh, display rebuild, Qt events",
+    "segment_end": [
+      1008.5,
+      704.5
+    ],
+    "segment_start": [
+      1000.5,
+      700.5
+    ]
+  }
+}

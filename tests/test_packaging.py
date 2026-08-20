@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 import tarfile
 import tomllib
@@ -15,6 +16,9 @@ FLEXIBLE_INPUT_ADDENDUM_PATH = (
 )
 DISPLAY_COMPARISON_ADDENDUM_PATH = (
     PROJECT_ROOT / "docs" / "display-comparison-addendum.md"
+)
+TRANSIENT_MEMO_ADDENDUM_PATH = (
+    PROJECT_ROOT / "docs" / "transient-memo-layer-addendum.md"
 )
 
 
@@ -34,6 +38,7 @@ def test_public_pytest_configuration_collects_packaging_tests() -> None:
     )
 
     assert pytest_options["testpaths"] == ["tests"]
+    assert config["project"]["version"] == "0.8.0"
     assert f'__version__ = "{config["project"]["version"]}"' in package_init
 
 
@@ -56,12 +61,40 @@ def test_windows_build_requires_public_tests_and_checks_native_exit_codes() -> N
         '$DisplayComparisonTestPath = Join-Path $TestDirectory '
         '"test_display_comparison_contract.py"'
     ) in script
+    assert (
+        '$BrushResponsivenessTestPath = Join-Path $TestDirectory '
+        '"test_brush_responsiveness_contract.py"'
+    ) in script
+    assert (
+        '$TransientMemoTestPath = Join-Path $TestDirectory '
+        '"test_transient_memo_layer_contract.py"'
+    ) in script
+    assert '$MemoHistoryTestPath = Join-Path $TestDirectory "test_memo_history.py"' in script
+    assert (
+        '$RealSizeWorkflowTestPath = Join-Path $TestDirectory '
+        '"test_real_size_workflow.py"'
+    ) in script
+    assert (
+        '$ExternalProcessConflictsTestPath = Join-Path $TestDirectory '
+        '"test_external_process_conflicts.py"'
+    ) in script
+    assert (
+        '$IsolatedDistributionWorkflowTestPath = Join-Path $TestDirectory '
+        '"test_isolated_distribution_workflow.py"'
+    ) in script
     assert "$PackagingTestPath" in required_inputs
     assert "$FlexibleInputTestPath" in required_inputs
     assert "$DisplayComparisonTestPath" in required_inputs
+    assert "$BrushResponsivenessTestPath" in required_inputs
+    assert "$TransientMemoTestPath" in required_inputs
+    assert "$MemoHistoryTestPath" in required_inputs
+    assert "$RealSizeWorkflowTestPath" in required_inputs
+    assert "$ExternalProcessConflictsTestPath" in required_inputs
+    assert "$IsolatedDistributionWorkflowTestPath" in required_inputs
     assert "$AddendumSource" in required_inputs
     assert "$FlexibleInputAddendumSource" in required_inputs
     assert "$DisplayComparisonAddendumSource" in required_inputs
+    assert "$TransientMemoAddendumSource" in required_inputs
     assert "uv run pytest $TestDirectory" in script
     assert "Write-Warning" not in script
     assert script.index('Assert-NativeSuccess "uv sync"') > script.index("uv sync --locked")
@@ -98,6 +131,12 @@ def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
     display_addendum_hash_index = script.index(
         "Bundled display-comparison addendum hash mismatch"
     )
+    transient_memo_addendum_copy_index = script.index(
+        "-LiteralPath $TransientMemoAddendumSource"
+    )
+    transient_memo_addendum_hash_index = script.index(
+        "Bundled transient-memo addendum hash mismatch"
+    )
     hash_index = script.index("Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256")
     report_index = script.index('Write-Host "配布候補: $ArtifactPath"')
 
@@ -114,7 +153,12 @@ def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
         < display_addendum_copy_index
         < display_addendum_hash_index
     )
-    assert display_addendum_hash_index < hash_index < report_index
+    assert (
+        display_addendum_hash_index
+        < transient_memo_addendum_copy_index
+        < transient_memo_addendum_hash_index
+    )
+    assert transient_memo_addendum_hash_index < hash_index < report_index
     assert "ternary_image_editor_spec_v1_5.html" in script
     spec_path = PROJECT_ROOT / "docs" / "ternary_image_editor_spec_v1_5.html"
     assert f'$ExpectedSpecHash = "{_sha256(spec_path)}"' in script
@@ -128,6 +172,10 @@ def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
         f'"{_sha256(DISPLAY_COMPARISON_ADDENDUM_PATH)}"'
     ) in script
     assert (
+        f'$ExpectedTransientMemoAddendumHash = '
+        f'"{_sha256(TRANSIENT_MEMO_ADDENDUM_PATH)}"'
+    ) in script
+    assert (
         'Write-Host "可変入力・組合せ追補: $FlexibleInputAddendumPath"'
         in script
     )
@@ -139,6 +187,11 @@ def test_windows_build_fails_closed_and_pins_the_normative_documents() -> None:
     assert (
         'Write-Host "表示比較（暗）追補SHA-256: '
         '$DisplayComparisonAddendumHash"'
+    ) in script
+    assert 'Write-Host "一時メモ層追補: $TransientMemoAddendumPath"' in script
+    assert (
+        'Write-Host "一時メモ層追補SHA-256: '
+        '$TransientMemoAddendumHash"'
     ) in script
 
 
@@ -159,32 +212,72 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
 
     with tarfile.open(source_archives[0], "r:gz") as source_archive:
         source_names = source_archive.getnames()
-    source_root = source_names[0].split("/", maxsplit=1)[0]
+        source_root = source_names[0].split("/", maxsplit=1)[0]
+        benchmark_member = source_archive.extractfile(
+            f"{source_root}/docs/brush-responsiveness-benchmark-2026-08-20.json"
+        )
+        assert benchmark_member is not None
+        benchmark_evidence = json.loads(benchmark_member.read())
     required_source_paths = {
         "README.md",
         "packaging/windows_entry.py",
         "pyproject.toml",
+        "scripts/benchmark_brush_responsiveness.py",
         "scripts/build_windows.ps1",
+        "scripts/verify_isolated_workflow.py",
+        "docs/brush-responsiveness-benchmark-2026-08-20.json",
         "docs/ternary_image_editor_spec_v1_5.html",
         "docs/mouse-input-bindings-addendum.md",
         "docs/flexible-input-pairing-addendum.md",
         "docs/display-comparison-addendum.md",
+        "docs/transient-memo-layer-addendum.md",
+        "docs/test-strategy.md",
+        "docs/local-verification-2026-08-20-brush-responsiveness.md",
+        "docs/local-verification-2026-08-20-local-acceptance.md",
+        "docs/local-verification-2026-08-20-transient-memo.md",
+        "docs/local-verification-2026-08-21-headed-macos.md",
         "tests/test_packaging.py",
         "tests/test_flexible_input_contract.py",
         "tests/test_display_comparison_contract.py",
+        "tests/test_external_process_conflicts.py",
+        "tests/test_isolated_distribution_workflow.py",
+        "tests/test_brush_responsiveness_contract.py",
+        "tests/test_real_size_workflow.py",
+        "tests/test_transient_memo_layer_contract.py",
+        "tests/test_memo_history.py",
         "uv.lock",
     }
     for relative_path in required_source_paths:
         assert f"{source_root}/{relative_path}" in source_names
+    project_version = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["version"]
+    assert project_version == "0.8.0"
+    assert benchmark_evidence["application_version"] == "0.7.1"
+    assert benchmark_evidence["application_version"] != project_version
+    assert benchmark_evidence["acceptance_boundary"].endswith(
+        "not Windows input-to-photon acceptance"
+    )
+    assert {case["case"] for case in benchmark_evidence["cases"]} == {
+        "actual-size-no-grid",
+        "scale-8-auto-grid",
+    }
+    assert all(case["p50_speedup"] > 2.0 for case in benchmark_evidence["cases"])
     public_test_paths = {
         name.removeprefix(f"{source_root}/")
         for name in source_names
         if name.startswith(f"{source_root}/tests/")
     }
     assert public_test_paths == {
+        "tests/test_brush_responsiveness_contract.py",
         "tests/test_display_comparison_contract.py",
+        "tests/test_external_process_conflicts.py",
         "tests/test_flexible_input_contract.py",
+        "tests/test_isolated_distribution_workflow.py",
+        "tests/test_memo_history.py",
         "tests/test_packaging.py",
+        "tests/test_real_size_workflow.py",
+        "tests/test_transient_memo_layer_contract.py",
     }
 
     with zipfile.ZipFile(wheels[0]) as wheel:

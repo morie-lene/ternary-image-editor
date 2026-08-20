@@ -18,7 +18,7 @@ from .errors import (
     NoImageLoadedError,
     PairDimensionError,
 )
-from .history import HistoryManager, HistoryTrimReport, PixelDelta, make_pixel_delta
+from .history import HistoryEntry, HistoryManager, HistoryTrimReport, make_pixel_delta
 from .image_io import (
     fingerprint_file,
     load_editable_output_image,
@@ -27,6 +27,7 @@ from .image_io import (
     normalized_protected_labels_copy,
     save_labels_atomic,
 )
+from .memo_history import MemoDelta
 from .models import (
     DocumentState,
     EditSource,
@@ -351,32 +352,43 @@ class ImageSession:
         self,
         new_labels: np.ndarray,
         description: str,
+        *,
+        memo_delta: MemoDelta | None = None,
     ) -> HistoryTrimReport | None:
         """外部配列を所有コピーへ変え、一操作として現在配列を置換する。"""
 
         self._ensure_edit_allowed()
         labels = self._require_labels()
+        self._validate_memo_delta_shape(memo_delta, labels.shape)
         owned = _owned_labels(new_labels, expected_shape=labels.shape)
         owned, _changed_pixels = normalized_protected_labels_copy(owned)
         delta = make_pixel_delta(labels, owned, description)
-        if delta is None:
+        if delta is None and memo_delta is None:
             return None
-        committed_labels = _immutable_labels_copy(owned)
-        report = self._history.record(delta)
-        self._labels = owned
-        self._committed_labels = committed_labels
-        self._revision += 1
+        report = self._history.record(
+            delta,
+            memo_delta=memo_delta,
+            description=description,
+        )
+        if delta is not None:
+            committed_labels = _immutable_labels_copy(owned)
+            self._labels = owned
+            self._committed_labels = committed_labels
+            self._revision += 1
         return report
 
     def commit_preapplied(
         self,
         before_labels: np.ndarray,
         description: str,
+        *,
+        memo_delta: MemoDelta | None = None,
     ) -> HistoryTrimReport | None:
         """既に作業配列へ適用済みのstroke等を一操作として確定する。"""
 
         self._ensure_edit_allowed(allow_preapplied=True)
         labels = self._require_labels()
+        self._validate_memo_delta_shape(memo_delta, labels.shape)
         committed = self._require_committed_labels()
         try:
             before = _owned_labels(before_labels, expected_shape=committed.shape)
@@ -389,35 +401,62 @@ class ImageSession:
             raise
 
         delta = make_pixel_delta(committed, labels, description)
-        if delta is None:
+        if delta is None and memo_delta is None:
             return None
-        committed_labels = _immutable_labels_copy(labels)
+        committed_labels = None if delta is None else _immutable_labels_copy(labels)
         try:
-            report = self._history.record(delta)
+            report = self._history.record(
+                delta,
+                memo_delta=memo_delta,
+                description=description,
+            )
         except Exception:
             self._restore_committed_labels()
             raise
-        self._committed_labels = committed_labels
-        self._revision += 1
+        if delta is not None:
+            assert committed_labels is not None
+            self._committed_labels = committed_labels
+            self._revision += 1
         return report
 
-    def undo(self) -> PixelDelta | None:
-        self._ensure_edit_allowed()
-        delta = self._history.undo(self._require_labels())
-        if delta is not None:
-            _force_protected_none_inplace(self._require_labels())
-            self._committed_labels = _immutable_labels_copy(self._require_labels())
-            self._revision += 1
-        return delta
+    def record_memo(
+        self,
+        memo_delta: MemoDelta,
+        description: str = "メモ",
+    ) -> HistoryTrimReport:
+        """保存状態を変えず、メモだけの一操作を同じUndo時系列へ積む。"""
 
-    def redo(self) -> PixelDelta | None:
         self._ensure_edit_allowed()
-        delta = self._history.redo(self._require_labels())
-        if delta is not None:
+        self._validate_memo_delta_shape(memo_delta, self._require_labels().shape)
+        return self._history.record(
+            None,
+            memo_delta=memo_delta,
+            description=description,
+        )
+
+    def discard_memo_history(self) -> None:
+        """保存成功後もラベル履歴を残し、メモに属する履歴だけを破棄する。"""
+
+        self._ensure_edit_allowed()
+        self._history.discard_memo()
+
+    def undo(self) -> HistoryEntry | None:
+        self._ensure_edit_allowed()
+        entry = self._history.undo(self._require_labels())
+        if entry is not None and entry.delta is not None:
             _force_protected_none_inplace(self._require_labels())
             self._committed_labels = _immutable_labels_copy(self._require_labels())
             self._revision += 1
-        return delta
+        return entry
+
+    def redo(self) -> HistoryEntry | None:
+        self._ensure_edit_allowed()
+        entry = self._history.redo(self._require_labels())
+        if entry is not None and entry.delta is not None:
+            _force_protected_none_inplace(self._require_labels())
+            self._committed_labels = _immutable_labels_copy(self._require_labels())
+            self._revision += 1
+        return entry
 
     def begin_activity(self, activity: Activity | str) -> TaskToken:
         """一つの処理活動を開始し、その入力状態を表すtokenを返す。"""
@@ -588,6 +627,14 @@ class ImageSession:
             or not bool(np.all(labels <= 2))
             or not np.array_equal(labels, committed)
         )
+
+    @staticmethod
+    def _validate_memo_delta_shape(
+        memo_delta: MemoDelta | None,
+        label_shape: tuple[int, ...],
+    ) -> None:
+        if memo_delta is not None and memo_delta.shape != label_shape:
+            raise ValueError("メモ差分の寸法が現在画像と一致しない")
 
     def _restore_committed_labels(self) -> None:
         self._labels = np.array(

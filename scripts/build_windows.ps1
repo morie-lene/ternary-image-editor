@@ -23,6 +23,9 @@ $ExpectedFlexibleInputAddendumHash = "CE148618E7CF049CBFE2FA13E00FC4F3CB17B4726C
 $DisplayComparisonAddendumSource = Join-Path $ProjectRoot "docs/display-comparison-addendum.md"
 $DisplayComparisonAddendumPath = Join-Path $SpecDirectory "display-comparison-addendum.md"
 $ExpectedDisplayComparisonAddendumHash = "26F1FF442548D51F66BDB518A14D10D92E52E48C10DAEC877A8AB04AD27E3779"
+$TransientMemoAddendumSource = Join-Path $ProjectRoot "docs/transient-memo-layer-addendum.md"
+$TransientMemoAddendumPath = Join-Path $SpecDirectory "transient-memo-layer-addendum.md"
+$ExpectedTransientMemoAddendumHash = "2EE72910899B8DAF9761BB41AD7312933444831E87DA5200B61B358594567FB0"
 $IconDirectory = Join-Path $ProjectRoot "src/ternary_image_editor/assets"
 $ExecutableIconSource = Join-Path $IconDirectory "app_icon.ico"
 $RuntimeIconSource = Join-Path $IconDirectory "app_icon.png"
@@ -31,6 +34,12 @@ $TestDirectory = Join-Path $ProjectRoot "tests"
 $PackagingTestPath = Join-Path $TestDirectory "test_packaging.py"
 $FlexibleInputTestPath = Join-Path $TestDirectory "test_flexible_input_contract.py"
 $DisplayComparisonTestPath = Join-Path $TestDirectory "test_display_comparison_contract.py"
+$BrushResponsivenessTestPath = Join-Path $TestDirectory "test_brush_responsiveness_contract.py"
+$TransientMemoTestPath = Join-Path $TestDirectory "test_transient_memo_layer_contract.py"
+$MemoHistoryTestPath = Join-Path $TestDirectory "test_memo_history.py"
+$RealSizeWorkflowTestPath = Join-Path $TestDirectory "test_real_size_workflow.py"
+$ExternalProcessConflictsTestPath = Join-Path $TestDirectory "test_external_process_conflicts.py"
+$IsolatedDistributionWorkflowTestPath = Join-Path $TestDirectory "test_isolated_distribution_workflow.py"
 
 function Assert-NativeSuccess([string]$Step) {
     if ($LASTEXITCODE -ne 0) {
@@ -45,9 +54,16 @@ foreach ($RequiredInput in @(
     $AddendumSource,
     $FlexibleInputAddendumSource,
     $DisplayComparisonAddendumSource,
+    $TransientMemoAddendumSource,
     $PackagingTestPath,
     $FlexibleInputTestPath,
-    $DisplayComparisonTestPath
+    $DisplayComparisonTestPath,
+    $BrushResponsivenessTestPath,
+    $TransientMemoTestPath,
+    $MemoHistoryTestPath,
+    $RealSizeWorkflowTestPath,
+    $ExternalProcessConflictsTestPath,
+    $IsolatedDistributionWorkflowTestPath
 )) {
     if (-not (Test-Path -LiteralPath $RequiredInput -PathType Leaf)) {
         throw "Required build input is missing: $RequiredInput"
@@ -156,6 +172,17 @@ $DisplayComparisonAddendumHash = (
 if ($DisplayComparisonAddendumHash -ne $ExpectedDisplayComparisonAddendumHash) {
     throw "Bundled display-comparison addendum hash mismatch: $DisplayComparisonAddendumPath"
 }
+Copy-Item `
+    -LiteralPath $TransientMemoAddendumSource `
+    -Destination $TransientMemoAddendumPath `
+    -Force `
+    -ErrorAction Stop
+$TransientMemoAddendumHash = (
+    Get-FileHash -LiteralPath $TransientMemoAddendumPath -Algorithm SHA256
+).Hash
+if ($TransientMemoAddendumHash -ne $ExpectedTransientMemoAddendumHash) {
+    throw "Bundled transient-memo addendum hash mismatch: $TransientMemoAddendumPath"
+}
 
 $ArtifactHash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash
 Write-Host "配布候補: $ArtifactPath"
@@ -171,3 +198,5 @@ Write-Host "可変入力・組合せ追補: $FlexibleInputAddendumPath"
 Write-Host "可変入力・組合せ追補SHA-256: $FlexibleInputAddendumHash"
 Write-Host "表示比較（暗）追補: $DisplayComparisonAddendumPath"
 Write-Host "表示比較（暗）追補SHA-256: $DisplayComparisonAddendumHash"
+Write-Host "一時メモ層追補: $TransientMemoAddendumPath"
+Write-Host "一時メモ層追補SHA-256: $TransientMemoAddendumHash"

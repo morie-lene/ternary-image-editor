@@ -11,3 +11,9 @@ tests/*
 !tests/test_packaging.py
 !tests/test_flexible_input_contract.py
 !tests/test_display_comparison_contract.py
+!tests/test_brush_responsiveness_contract.py
+!tests/test_transient_memo_layer_contract.py
+!tests/test_memo_history.py
+!tests/test_real_size_workflow.py
+!tests/test_external_process_conflicts.py
+!tests/test_isolated_distribution_workflow.py

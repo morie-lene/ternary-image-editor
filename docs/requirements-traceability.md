@@ -15,7 +15,12 @@ version 1.2の履歴SHA-256は
 version 1.0、SHA-256:
 `26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`）が表示合成・表示設定・
 操作件数だけを限定上書きする。v1.5のHTMLとhashは変更しない。
-この追跡表の現行対象応用版は `0.7.0`。
+一時メモ層は`transient-memo-layer-addendum.md`（`TIE-ADD-MEMO-001` version 1.0、SHA-256:
+`2ee72910899b8daf9761bb41ad7312933444831e87da5200b61b358594567fb0`）が、未割当右button、
+単一履歴、非保存表示、保存・画像交換境界、AT-065のメモ専用Undo・Redoだけを限定上書きする。
+この追跡表の現行対象応用版は `0.8.0`。同じ版文字列を持つ過去の局所wheelと、2026-08-21の
+未commit修正版sourceは同一artifactではない。後者の関連源hashは
+[macOS画面有り利用経路・ローカル検証記録](local-verification-2026-08-21-headed-macos.md)で同定する。
 
 状態語は次の意味に限る。
 
@@ -28,12 +33,16 @@ version 1.0、SHA-256:
 
 いずれも最終人間受理を表さない。公開取得物には入力契約用の
 `tests/test_flexible_input_contract.py`、表示比較契約用の`tests/test_display_comparison_contract.py`、
-包装検査用の`tests/test_packaging.py`を含める。
+筆局所更新用の`tests/test_brush_responsiveness_contract.py`、一時メモの動的履歴用の
+`tests/test_memo_history.py`と源接続・低倍率一点事故回帰用の`tests/test_transient_memo_layer_contract.py`、包装検査用の
+`tests/test_packaging.py`に加え、代表寸法・疎履歴用の`tests/test_real_size_workflow.py`、別process競合用の
+`tests/test_external_process_conflicts.py`、隔離wheel経路用の
+`tests/test_isolated_distribution_workflow.py`を含める。
 `FLEX-AT-*`でこの公開入力契約試験を明記した項目は公開cloneで再現できる。それ以外の機能要求に
 対する`automated-local`は、特記がない限り非公開の開発作業木で得た機能試験証拠を表し、公開包装
 試験の成功から導出しない。
 
-固定hashを持つマウス入力割当追補9節の「試験コードを含めない」という一般記述は、現在の三つの
+固定hashを持つマウス入力割当追補9節の「試験コードを含めない」という一般記述は、現在の九つの
 公開試験を反映していない。追補本文を同一hashのまま改変せず、本追跡表とREADMEでこの範囲差を
 明示する。
 
@@ -79,6 +88,38 @@ GUI起動、独立動的probe、三系統の独立査読が成功したことで
 Ruff、依存固定、差分形式、sdist / wheel、画面外GUI煙試験、四規範文書hashも成功し、詳細を
 [外部出力復旧・preflight退避ローカル検証記録](local-verification-2026-08-20-external-output-recovery.md)
 へ分離した。これらの局所成功はWindows one-folder構築、exe起動、実物ICC、実業務画像の受理を閉じない。
+
+版0.7.1の筆局所更新証拠は同日のmacOS作業木で、全477試験、公開115試験、性能標識1試験が成功し、
+収載A/B観測のp50が格子なし12.45倍、高倍率格子あり20.00倍となったことである。測定JSONの
+`application_version`は取得時の`0.7.1`を保持する。版0.8.0の包装へ入っても、0.8.0の性能測定または
+Windows入力対光子受理へ読み替えない。詳細は
+[筆追従局所更新・ローカル検証記録](local-verification-2026-08-20-brush-responsiveness.md)へ分離する。
+
+版0.8.0では、一時メモ層、単一複合履歴、ラベル筆による同操作消去、成功専用破棄、失敗維持、
+三値非表示時の次項目門を追跡対象へ加えた。全520試験、公開六試験133件、Ruff、依存固定、
+差分形式、sdist/wheel構築、隔離wheel画面外煙試験が成功した。独立査読で検出したHOLD解放残留、
+DPI取消後の右解放例外、未使用時の全画面メモ資源確保も修正し、専用回帰を全試験へ含めた。詳細は
+[一時メモ層ローカル検証記録](local-verification-2026-08-20-transient-memo.md)へ分離する。Windows実機
+受理は閉じない。
+
+### 0.8.0後続の用途指向試験補強
+
+この補強は新しい機能要求を作らず、既存要求を実利用に近い組合せと証拠層で再検査する。
+
+| 横断証拠 | 結び付く要求 | 検査内容 | 残る境界 |
+| --- | --- | --- | --- |
+| `tests/test_real_size_workflow.py` | AT-071、AT-072、MEMO-AT-004、005、007、009 | 2048×1536の代表画像で長筆の局所更新と全表示像の一致、メモ複合Undo・Redo、200件の疎履歴容量を検査 | 2048×1536をアプリ要件にはしない。実入力速度、長時間利用、極端な密筆は未受理 |
+| `tests/test_external_process_conflicts.py` | AT-027、AT-070、MEMO-AT-007 | 別processが保持する協調lockと、別processによる保存先置換に対して、外部出力・未保存状態を壊さず失敗することを検査 | Windowsのlock・ACL、非協調writerが最終照合後に割り込む競合は未受理 |
+| `scripts/verify_isolated_workflow.py`、`tests/test_isolated_distribution_workflow.py` | FLEX-AT-012、016、AT-027、AT-028 | 同梱`uv.lock`からhash付き本番依存を書き出し、offline cacheから完全一致導入した一時環境で、作業木外import、読込、計画的編集、保存、同一processの新MainWindow・新sessionによるOUTPUT優先再開を全ラベル配列で検査 | 宣言launcher実行、OS通信隔離、OS process再起動、物理入力、画面有り描画、Windows、PyInstaller候補は未受理 |
+| `docs/local-verification-2026-08-21-headed-macos.md` | FLEX-AT-008、012、AT-011、013、028、029、DISP-CMP-001、004、007、MEMO-AT-001〜005、007 | source通常窓で厳格二組、出力優先、別process再開、筆、比較、入力hash、右一点・複合履歴・保存時破棄を限定観測し、低倍率一点欠陥を事故回帰へ落とした | 一時macOS外被と自動pointer入力であり、物理機器、Windows、PyInstaller候補は未受理 |
+
+2026-08-20（Asia/Tokyo）の追加局所証拠は、全529試験と公開九試験142件の成功、別process競合の
+反復、版0.8.0筆性能の再観測、隔離wheel経路の八検査成功である。詳細は
+[用途指向試験補強・ローカル検証記録](local-verification-2026-08-20-local-acceptance.md)へ分離する。
+同記録時点の画面有りmacOS観測は施錠により未実施だった。2026-08-21に後続の画面有りsource経路を
+実施し、低倍率右単一クリック欠陥を検出・修正して公開事故回帰を加えた。詳細は
+[macOS画面有り利用経路・ローカル検証記録](local-verification-2026-08-21-headed-macos.md)へ分離する。
+Windows受理は従来どおり閉じない。
 
 ## v1.1から継続する受入条件
 
@@ -128,14 +169,14 @@ Ruff、依存固定、差分形式、sdist / wheel、画面外GUI煙試験、四
 | AT-062 | 設定の適用・取消 | `SettingsDialog`, `MainWindow._apply_settings_snapshot` | dialog適用・取消と `test_at_062_setting_apply_does_not_touch_image_state` による配列・基準・履歴・未保存不変 | implemented / automated-local |
 | AT-063 | 疑似色設定・色差警告 | `settings_model.py`, `settings_dialog.py` | `#RRGGBB`、距離64境界、確認、色既定復元、永続化を自動検証。OS色選択部品経路は未追加 | implemented / automated-partial |
 | AT-064 | 原画像入力条件・色管理。現在はFLEX-ORIG-001/002とFLEX-AT-010で限定上書き | `image_io.py` | 公開原画像正規化・EXIF転置・復号失敗・入力不変試験と局所回帰試験 | implemented / automated-local |
-| AT-065 | 三値非表示時の編集禁止 | `canvas.py`, `main_window.py` | canvas overlay試験と `test_at_065_hidden_labels_block_edit_undo_redo_and_preserve_history` | implemented / automated-local |
+| AT-065 | 三値非表示時のラベル編集禁止。一時メモ追補が次の`memo-only`履歴だけを限定上書き | `canvas.py`, `main_window.py`, `history.py` | 既存canvas overlay・非表示編集試験に加え、公開一時メモ契約と動的履歴試験が`label-containing`停止・非飛越しを検査 | implemented / automated-partial / MEMO-AT-006 windows-pending |
 | AT-066 | 変更なし保存 | `session.py`, `main_window.py`, `image_io.py` | `test_at_066_079_unchanged_save_changes_list_to_output_present` がclean保存と出力あり遷移を検証 | implemented / automated-local |
 | AT-067 | 内容比較による未保存判定 | `session.py` の基準配列比較 | `test_v15_core.py::test_at_067_dirty_state_is_based_on_content_not_history_position` | implemented / automated-local |
 | AT-068 | 履歴破棄後の未保存判定 | 基準配列と履歴を分離 | 内容比較と履歴上限を個別試験。両者の組合せ専用試験は未追加 | implemented / automated-partial |
 | AT-069 | 外部出力変更・新規出現 | `image_io.py`, `session.py`, `dialogs.py`, `main_window.py` | 内容変更・新規出現・削除・置換境界の故障注入に加え、主窓試験が取消後の未保存・履歴・外部出力維持と、外部削除/置換時の旧「出力不正」cache破棄を検証 | implemented / automated-local |
 | AT-070 | 多重起動保存ロック | `save_lock.py`, 保存排他区間 | `test_v15_core.py::test_at_070_output_lock_is_nonblocking_stable_and_preserves_dirty_state` | implemented / automated-local / Windows多重プロセスはwindows-pending |
-| AT-071 | 筆描画の原子性・取消 | `canvas.py`, `main_window.py`, `session.py` | Esc取消、正常解放、stroke一履歴、描画中排他を個別試験 | implemented / automated-partial |
-| AT-072 | 偶数径筆マスク | `operations.py`, `canvas.py` | 離散円・正方形の余剰側、補間、予告像一致の試験 | implemented / automated-local |
+| AT-071 | 筆描画の原子性・取消 | `canvas.py`, `main_window.py`, `session.py` | Esc取消、正常解放、stroke一履歴、描画中排他に加え、公開`test_main_window_brush_preview_uses_region_and_skips_noop`が筆移動の局所更新と同色無更新を検証 | implemented / automated-partial |
+| AT-072 | 偶数径筆マスク | `operations.py`, `canvas.py` | 離散円・正方形の余剰側、補間、予告像一致に加え、公開`test_brush_increment_dirty_regions_preserve_reference_stroke`が画像外再進入を含む局所演算と全筆跡の画素一致を検証。公開`test_native_cursor_is_hidden_only_while_the_custom_image_pointer_is_visible`が筆・塗り潰し・保護、画像外、表示切替、一時・実パンのOSカーソル遷移を検証 | implemented / automated-local / Windows目視はpending |
 | AT-073 | ウィンドウ寸法変更 | `canvas.py`, `canvas_transform.py` | fit再計算、手動倍率・中心維持の数式・Qt試験 | implemented / automated-local |
 | AT-074 | モニターDPI変更 | `canvas.py`, `canvas_transform.py` | DPR変更時の中心・閾値再計算は自動検証。実モニター移動は未検証 | implemented / automated-partial / windows-pending |
 | AT-075 | Unicode対応キー。厳格対応identityはNFC、自然順の整列だけNFKC | `pairing.py` | 厳格経路の`test_v15_core.py::test_at_075_nfc_equivalent_suffixes_pair_but_case_difference_does_not`。自然順はFLEX-AT-003へ分離 | implemented / automated-partial |
@@ -222,6 +263,27 @@ Ruff、依存固定、差分形式、sdist / wheel、画面外GUI煙試験、四
 | DISP-CMP-007 | 切替・設定適用・復元を表示専用とし、ラベル、基準、履歴、改訂、未保存判定、保存PNGを変えない | `canvas.py`, `main_window.py` | 公開`test_disp_cmp_002_007_action_sync_and_restart_do_not_touch_document_state`、`test_disp_cmp_007_saved_png_is_identical_before_and_after_display_toggle`、`test_at_062_setting_apply_does_not_touch_image_state` | implemented / automated-local / windows-pending |
 | DISP-CMP-008 | 既定false、QSettings `view/darkenComparison`、schema 2据置、Apply/Cancel境界、欠損・破損fallback | `settings_model.py`, `settings_dialog.py`, `main_window.py` | 公開`test_disp_cmp_008_settings_roundtrip_and_corrupt_value_fallback`、設定model往復、dialog適用・取消回帰 | implemented / automated-local / windows-pending |
 
+## 一時メモ層追補の受入条件
+
+`MEMO-*`は`TIE-ADD-MEMO-001`だけに属し、基線の`AT-*`と既存三追補の要求身元から分離する。
+公開`tests/test_memo_history.py`は統一履歴を動的に検査し、
+`tests/test_transient_memo_layer_contract.py`は重要な実装接続をソース契約として検査し、低倍率右
+単一クリックについてだけ実Canvasの事故回帰を持つ。後者の成功だけから全Qt event、保存成果物、
+Windows実機の端から端の成功を導出しない。
+
+| 追補AT | 契約 | 現在の実装 | 現在の自動証拠 | 状態 |
+| --- | --- | --- | --- | --- |
+| MEMO-AT-001 | 完全一致割当済み右buttonを優先し、未割当の右buttonだけを一点を含むメモ一筆へ渡す。割当時は失う固定メモを事前確認 | `main_window.py`, `canvas.py`, `settings_dialog.py` | 公開ソース接続契約、低倍率右click事故回帰、画面有りsourceの右一点観測 | implemented / automated-partial / windows-pending |
+| MEMO-AT-002 | メモを画像注記の最上段へ描き、ラベル、改訂、解析、未保存判定、保存PNGへ混入させない | `canvas.py`, `session.py`, `main_window.py` | 公開ソース接続契約、Canvas表示・保存不変試験、画面有りsourceの点表示・保存前後hash一致 | implemented / automated-partial / windows-pending |
+| MEMO-AT-003 | 右押下から解放までを一筆一履歴とし、Esc・非活性化・焦点／捕捉喪失は一筆全取消 | `canvas.py`, `main_window.py` | 低倍率右`mouseClick`事故回帰、drag・取消・命令排他のQt試験、画面有りsourceの一点確定 | implemented / automated-partial / windows-pending |
+| MEMO-AT-004 | メモ、ラベル、複合項目を一時系列へ積み、Undo後の新操作が共通Redo枝を破棄 | `memo_history.py`, `history.py`, `session.py` | 公開動的履歴試験と画面有りsourceのメモUndo・Redo、複合Undo観測 | implemented / automated-local / windows-pending |
+| MEMO-AT-005 | ラベル筆の幾何学的重複で同色画素上のメモも消し、ラベル差分と同じ項目へ束ね、取消・Undo・Redoを共に行う | `operations.py`, `canvas.py`, `history.py`, `main_window.py` | 公開動的履歴試験、主窓の同色筆・複合履歴・取消試験、画面有りsourceの重畳消去・一括Undo | implemented / automated-partial / windows-pending |
+| MEMO-AT-006 | 三値非表示時は次の`memo-only`だけをUndo・Redoし、`label-containing`で停止して飛び越さない | `history.py`, `session.py`, `main_window.py` | 公開動的履歴試験と主窓操作有効性・非飛越し試験、ソース接続契約 | implemented / automated-local / windows-pending |
+| MEMO-AT-007 | 保存成功だけが現在メモと履歴中メモ成分を破棄し、保存失敗・確認取消は画素と履歴位置を維持 | `history.py`, `session.py`, `canvas.py`, `main_window.py` | 公開動的履歴のメモ除去試験、主窓の保存成功・失敗故障注入、画面有りsourceの保存時破棄・出力hash不変 | implemented / automated-partial / windows-pending |
+| MEMO-AT-008 | 画像交換成功は空メモ層へ移り、読込失敗・JPEG取消・未保存中止・全候補失敗は現在メモと履歴を維持 | `session.py`, `canvas.py`, `main_window.py` | 主窓の成功導入・取引的失敗・取消試験と公開ソース接続契約 | implemented / automated-partial / windows-pending |
+| MEMO-AT-009 | メモの操作数と疎差分byte数を200操作／512 MiBへ算入し、PNG・設定・回復fileへ永続化しない | `memo_history.py`, `history.py`, `canvas.py` | 公開動的履歴の操作／byte上限試験と包装・ソース接続契約 | implemented / automated-local / windows-pending |
+| MEMO-AT-010 | Windows 10 / 11の実マウス、各DPI、焦点喪失、配布候補で入力・視認性・Undo・破棄境界を確認 | 配布候補 | macOSの局所自動試験では閉じない | windows-pending |
+
 ## AT表外の横断要求証拠
 
 - KEY-004: `test_action_registry.py` が単文字・数字・記号と標準文字編集キーを編集欄では
@@ -251,6 +313,8 @@ Ruff、依存固定、差分形式、sdist / wheel、画面外GUI煙試験、四
   復旧不能出力からの三preflight入口INPUT退避、DPI metadata非依存、実物ICCとalphaの判定。
 - DISP-CMP-001〜008のWindows描画器での比較（暗）画素、100%〜200%表示、疑似色、再起動復元、
   切替前後の保存PNG不変。
+- MEMO-AT-001〜010のWindows実マウス右drag、完全一致割当、DPI跨ぎ、焦点／捕捉喪失、最上段の
+  視認性、三値非表示時のUndo・Redo、保存・画像交換の成功／失敗境界。
 - 同じ側車ロック規約に従わない別アプリが、最後の内容照合と `os.replace` 呼出しの間へ
   割り込む競合。協調writerは保存ロックで排他するが、`os.replace` 自体は内容条件付き置換
   ではない。
