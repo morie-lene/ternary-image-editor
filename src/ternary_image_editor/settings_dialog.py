@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -62,6 +63,7 @@ from .constants import (
     MIN_BRUSH_DIAMETER,
 )
 from .settings_model import (
+    DEFAULT_MEMO_COLOR,
     DEFAULT_PSEUDO_COLORS,
     AppSettings,
     close_color_pairs,
@@ -372,6 +374,7 @@ class SettingsDialog(QDialog):
     """Settings work-copy editor with Apply/OK/Cancel transaction boundaries."""
 
     applied = Signal(object)
+    apply_failed = Signal()
 
     CATEGORY_COLUMN = 0
     NAME_COLUMN = 1
@@ -443,7 +446,9 @@ class SettingsDialog(QDialog):
         return self._applied_settings
 
     def _build_general_page(self) -> QWidget:
-        page = QWidget(self)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        page = QWidget(scroll)
         layout = QVBoxLayout(page)
 
         folders = QGroupBox("入出力フォルダ", page)
@@ -485,6 +490,36 @@ class SettingsDialog(QDialog):
         view_form.addRow(self.grid_auto)
         view_form.addRow(self.small_components)
         layout.addWidget(view_group)
+
+        memo_group = QGroupBox("一時メモ", page)
+        memo_form = QFormLayout(memo_group)
+        self.memo_enabled = QCheckBox("右クリックで一時メモを描画", memo_group)
+        self.memo_enabled.setChecked(self.work_copy.memo_enabled)
+        self.memo_enabled.setToolTip(
+            "操作割当に使われていない右クリックで、保存対象外のメモを描画する"
+        )
+        memo_color_row = QWidget(memo_group)
+        memo_color_layout = QHBoxLayout(memo_color_row)
+        memo_color_layout.setContentsMargins(0, 0, 0, 0)
+        self.memo_color_edit = QLineEdit(self.work_copy.memo_color, memo_color_row)
+        self.memo_color_edit.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r"#[0-9A-Fa-f]{6}"), self)
+        )
+        self.memo_color_edit.setToolTip(
+            "以後に描くメモと入力位置へ反映する。既に描いたメモの色は変えない"
+        )
+        self.memo_color_edit.textChanged.connect(self._update_memo_color_swatch)
+        self.memo_color_button = QPushButton("選択…", memo_color_row)
+        self.memo_color_button.clicked.connect(self._choose_memo_color)
+        self.memo_color_reset_button = QPushButton("既定", memo_color_row)
+        self.memo_color_reset_button.clicked.connect(self.reset_memo_color)
+        memo_color_layout.addWidget(self.memo_color_edit, 1)
+        memo_color_layout.addWidget(self.memo_color_button)
+        memo_color_layout.addWidget(self.memo_color_reset_button)
+        memo_form.addRow(self.memo_enabled)
+        memo_form.addRow("記入色（#RRGGBB）", memo_color_row)
+        layout.addWidget(memo_group)
+        self._update_memo_color_swatch()
 
         color_group = QGroupBox("疑似色（#RRGGBB）", page)
         color_layout = QFormLayout(color_group)
@@ -544,7 +579,8 @@ class SettingsDialog(QDialog):
         edit_form.addRow("境界太さ", self.boundary_thickness)
         layout.addWidget(edit_group)
         layout.addStretch(1)
-        return page
+        scroll.setWidget(page)
+        return scroll
 
     def _build_shortcut_page(self) -> QWidget:
         page = QWidget(self)
@@ -723,6 +759,9 @@ class SettingsDialog(QDialog):
         for index in range(3):
             self.reset_color(index)
 
+    def reset_memo_color(self) -> None:
+        self.memo_color_edit.setText(DEFAULT_MEMO_COLOR)
+
     def apply_changes(self) -> bool:
         self.cancel_capture("設定を適用した")
         try:
@@ -734,13 +773,33 @@ class SettingsDialog(QDialog):
         close_pairs = close_color_pairs(candidate.pseudo_colors)
         if close_pairs and not self._confirm_close_colors(close_pairs):
             return False
+        previous = self._applied_settings
+        apply_attempted = False
+        persist_attempted = False
         try:
-            if self._persist_callback is not None:
-                self._persist_callback(candidate)
             if self._apply_callback is not None:
+                apply_attempted = True
                 self._apply_callback(candidate)
+            if self._persist_callback is not None:
+                persist_attempted = True
+                self._persist_callback(candidate)
         except Exception as exc:  # noqa: BLE001 - persistence/application boundary
-            self.capture_status.setText(f"設定適用エラー：{exc}")
+            rollback_errors: list[str] = []
+            if apply_attempted and self._apply_callback is not None:
+                try:
+                    self._apply_callback(previous)
+                except Exception as rollback_exc:  # noqa: BLE001 - rollback boundary
+                    rollback_errors.append(f"画面復元：{rollback_exc}")
+            if persist_attempted and self._persist_callback is not None:
+                try:
+                    self._persist_callback(previous)
+                except Exception as rollback_exc:  # noqa: BLE001 - rollback boundary
+                    rollback_errors.append(f"保存復元：{rollback_exc}")
+            detail = f"設定を適用できません：{exc}"
+            if rollback_errors:
+                detail += f"（{'; '.join(rollback_errors)}）"
+            self.capture_status.setText(detail)
+            self.apply_failed.emit()
             return False
         self._applied_settings = candidate
         self.work_copy = candidate.work_copy()
@@ -789,6 +848,8 @@ class SettingsDialog(QDialog):
         self.work_copy.tool = str(self.tool.currentData())
         self.work_copy.brush_shape = str(self.brush_shape.currentData())
         self.work_copy.brush_diameter = self.brush_diameter.value()
+        self.work_copy.memo_enabled = self.memo_enabled.isChecked()
+        self.work_copy.memo_color = normalize_hex_color(self.memo_color_edit.text())
         self.work_copy.boundary_mode = str(self.boundary_mode.currentData())
         self.work_copy.boundary_thickness = self.boundary_thickness.value()
 
@@ -1037,6 +1098,23 @@ class SettingsDialog(QDialog):
             self.color_buttons[index].setStyleSheet("")
             return
         self.color_buttons[index].setStyleSheet(f"background-color: {color};")
+
+    def _choose_memo_color(self) -> None:
+        try:
+            initial = QColor(*rgb_from_hex(self.memo_color_edit.text()))
+        except (TypeError, ValueError):
+            initial = QColor(*rgb_from_hex(DEFAULT_MEMO_COLOR))
+        selected = QColorDialog.getColor(initial, self, "メモ色を選択")
+        if selected.isValid():
+            self.memo_color_edit.setText(selected.name(QColor.NameFormat.HexRgb).upper())
+
+    def _update_memo_color_swatch(self) -> None:
+        try:
+            color = normalize_hex_color(self.memo_color_edit.text())
+        except (TypeError, ValueError):
+            self.memo_color_button.setStyleSheet("")
+            return
+        self.memo_color_button.setStyleSheet(f"background-color: {color};")
 
     @staticmethod
     def _select_data(combo: QComboBox, value: str) -> None:

@@ -38,7 +38,7 @@ def test_public_pytest_configuration_collects_packaging_tests() -> None:
     )
 
     assert pytest_options["testpaths"] == ["tests"]
-    assert config["project"]["version"] == "0.8.0"
+    assert config["project"]["version"] == "0.9.0"
     assert f'__version__ = "{config["project"]["version"]}"' in package_init
 
 
@@ -236,6 +236,8 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
         "docs/local-verification-2026-08-20-local-acceptance.md",
         "docs/local-verification-2026-08-20-transient-memo.md",
         "docs/local-verification-2026-08-21-headed-macos.md",
+        "docs/local-verification-2026-08-21-memo-settings.md",
+        "docs/local-verification-2026-08-21-middle-pan-repaint.md",
         "tests/test_packaging.py",
         "tests/test_flexible_input_contract.py",
         "tests/test_display_comparison_contract.py",
@@ -252,7 +254,7 @@ def test_python_archives_contain_the_public_packaging_contract(tmp_path: Path) -
     project_version = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]["version"]
-    assert project_version == "0.8.0"
+    assert project_version == "0.9.0"
     assert benchmark_evidence["application_version"] == "0.7.1"
     assert benchmark_evidence["application_version"] != project_version
     assert benchmark_evidence["acceptance_boundary"].endswith(

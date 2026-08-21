@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QWidget
 from .canvas_transform import CanvasTransform
 from .constants import (
     DEFAULT_BRUSH_DIAMETER,
+    DEFAULT_MEMO_RGB,
     DEFAULT_PSEUDO_RGB,
     SAVE_RGB,
     protected_start_y,
@@ -157,7 +158,9 @@ class ImageCanvas(QWidget):
         self.auto_grid_enabled = True
         self.warning_visible = False
         self.editing_enabled = True
+        self.memo_input_enabled = True
         self.memo_enabled = True
+        self._memo_color = DEFAULT_MEMO_RGB
         self.tool = EditTool.BRUSH
         self.brush_shape = BrushShape.CIRCLE
         self.brush_diameter = DEFAULT_BRUSH_DIAMETER
@@ -189,6 +192,26 @@ class ImageCanvas(QWidget):
     @property
     def memo_stroke_active(self) -> bool:
         return self._memo_drawing
+
+    @property
+    def memo_color(self) -> tuple[int, int, int]:
+        return self._memo_color
+
+    def set_memo_color(self, color: tuple[int, int, int]) -> None:
+        if len(color) != 3 or any(
+            isinstance(channel, bool)
+            or not isinstance(channel, int)
+            or not 0 <= channel <= 255
+            for channel in color
+        ):
+            raise ValueError("メモ色は0から255のRGB三成分でなければならない")
+        if self._memo_drawing:
+            raise RuntimeError("メモ一筆の入力中は色を変更できない")
+        normalized = (color[0], color[1], color[2])
+        if normalized == self._memo_color:
+            return
+        self._memo_color = normalized
+        self.update()
 
     @property
     def temporary_pan_active(self) -> bool:
@@ -682,6 +705,9 @@ class ImageCanvas(QWidget):
             if not self.has_image:
                 super().mousePressEvent(event)
                 return
+            if not self.memo_input_enabled:
+                event.accept()
+                return
             if not self.memo_enabled:
                 self.interaction_blocked.emit("処理中はメモを描画できない")
                 event.accept()
@@ -749,6 +775,8 @@ class ImageCanvas(QWidget):
             self.transform.pan_by(delta.x(), delta.y())
             self._last_pan_position = position
             self._update_pointer(position)
+            # パンは全表示層の写像を変えるため、指示位置周辺だけでは足りない。
+            self.update()
             event.accept()
             return
         self._update_pointer(position)
@@ -1107,7 +1135,7 @@ class ImageCanvas(QWidget):
             return
         if self._memo_drawing:
             center = self._cursor_canvas
-            painter.setBrush(QColor(255, 214, 64, 235))
+            painter.setBrush(QColor(*self._memo_color, 235))
             pen = QPen(QColor(25, 25, 25, 245))
             pen.setWidthF(2.0 / self.transform.device_pixel_ratio)
             painter.setPen(pen)
@@ -1414,7 +1442,7 @@ class ImageCanvas(QWidget):
                 painter.drawPoint(point)
             else:
                 painter.drawLine(QPointF(*start), QPointF(*end))
-            inner = QPen(QColor(255, 214, 64, 245))
+            inner = QPen(QColor(*self._memo_color, 245))
             inner.setWidthF(inner_width)
             inner.setCapStyle(Qt.PenCapStyle.RoundCap)
             inner.setJoinStyle(Qt.PenJoinStyle.RoundJoin)

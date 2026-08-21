@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from PySide6.QtCore import QPoint, QPointF, QRect, QSettings, Qt
 from PySide6.QtGui import QImage, QPaintEvent, QRegion
+from PySide6.QtWidgets import QApplication
 
 import ternary_image_editor.canvas as canvas_module
 import ternary_image_editor.operations as operations_module
@@ -250,6 +251,68 @@ def test_pointer_and_label_changes_request_bounded_widget_updates(
     assert all(
         rect.width() * rect.height() < canvas.width() * canvas.height() // 4 for rect in rects
     )
+
+
+@pytest.mark.parametrize(
+    ("button", "temporary_pan"),
+    (
+        (Qt.MouseButton.MiddleButton, False),
+        (Qt.MouseButton.LeftButton, True),
+    ),
+    ids=("middle", "space-left"),
+)
+@pytest.mark.parametrize("ternary_visible", [True, False])
+def test_pan_repaints_the_full_canvas_during_each_drag_move(
+    qtbot,
+    button: Qt.MouseButton,
+    temporary_pan: bool,
+    ternary_visible: bool,
+) -> None:
+    class PaintProbeCanvas(ImageCanvas):
+        def __init__(self) -> None:
+            self.paint_regions: list[QRegion] = []
+            super().__init__()
+
+        def paintEvent(self, event) -> None:  # noqa: N802, ANN001 - Qt override
+            self.paint_regions.append(QRegion(event.region()))
+            super().paintEvent(event)
+
+    canvas = PaintProbeCanvas()
+    canvas.resize(320, 240)
+    qtbot.addWidget(canvas)
+    canvas.set_images(
+        np.zeros((512, 512, 3), dtype=np.uint8),
+        np.zeros((512, 512), dtype=np.uint8),
+        reset_view=True,
+    )
+    canvas.set_actual_size()
+    canvas.ternary_visible = ternary_visible
+    canvas.show()
+    qtbot.waitExposed(canvas)
+    canvas.set_space_pressed(temporary_pan)
+
+    start = QPoint(150, 110)
+    moves = (QPoint(175, 125), QPoint(210, 150))
+    qtbot.mouseMove(canvas, start)
+    qtbot.mousePress(canvas, button, pos=start)
+    QApplication.processEvents()
+    origin = (canvas.transform.origin_x, canvas.transform.origin_y)
+
+    for point in moves:
+        canvas.paint_regions.clear()
+        qtbot.mouseMove(canvas, point)
+        QApplication.processEvents()
+
+        assert canvas.paint_regions
+        assert any(region.contains(canvas.rect()) for region in canvas.paint_regions)
+
+    assert canvas.transform.origin_x == pytest.approx(origin[0] + 60)
+    assert canvas.transform.origin_y == pytest.approx(origin[1] + 40)
+
+    qtbot.mouseRelease(canvas, button, pos=moves[-1])
+    assert not canvas._panning
+    assert canvas._last_pan_position is None
+    canvas.set_space_pressed(False)
 
 
 def test_native_cursor_is_hidden_only_while_the_custom_image_pointer_is_visible(qtbot) -> None:

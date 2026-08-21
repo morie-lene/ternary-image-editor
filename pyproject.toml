@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ternary-image-editor"
-version = "0.8.0"
+version = "0.9.0"
 description = "Windows desktop editor for paired source and ternary-label images"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
@@ -37,6 +37,8 @@ artifacts = [
   "docs/local-verification-2026-08-20-local-acceptance.md",
   "docs/local-verification-2026-08-20-transient-memo.md",
   "docs/local-verification-2026-08-21-headed-macos.md",
+  "docs/local-verification-2026-08-21-memo-settings.md",
+  "docs/local-verification-2026-08-21-middle-pan-repaint.md",
   "scripts/verify_isolated_workflow.py",
   "tests/test_display_comparison_contract.py",
   "tests/test_external_process_conflicts.py",

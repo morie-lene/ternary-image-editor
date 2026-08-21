@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QEvent, QObject, QSettings, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QEvent, QObject, QPointF, QSettings, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QMouseEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -160,6 +160,11 @@ class MainWindow(QMainWindow):
         self._stroke_diameter = 5
         self._stroke_shape = "circle"
         self._active_pointer_bindings: dict[Qt.MouseButton, str] = {}
+        self._pending_settings_effects: tuple[
+            AppSettings,
+            tuple[Path, Path, Path] | None,
+            bool,
+        ] | None = None
 
         self.canvas = ImageCanvas(self)
         self.controls = EditorControls(self)
@@ -572,7 +577,7 @@ class MainWindow(QMainWindow):
             "file.save",
         )
         file_menu.addSeparator()
-        self._add_operations(file_menu, "app.open-settings", "app.exit")
+        self._add_operations(file_menu, "app.exit")
 
         navigate_menu = self.menuBar().addMenu("画像移動")
         self._add_operations(
@@ -628,6 +633,7 @@ class MainWindow(QMainWindow):
         ):
             boundary_menu.addAction(self._operation_actions[operation_id])
 
+        self.menuBar().addAction(self.settings_action)
         help_menu = self.menuBar().addMenu("ヘルプ")
         help_menu.addAction("このアプリについて", self._show_about)
 
@@ -959,6 +965,8 @@ class MainWindow(QMainWindow):
             persist_callback=self.settings_repository.save,
             apply_callback=self._apply_settings_snapshot,
         )
+        dialog.applied.connect(self._settings_snapshot_committed)
+        dialog.apply_failed.connect(self._settings_snapshot_failed)
         dialog.exec()
 
     def _current_settings_snapshot(self) -> AppSettings:
@@ -980,43 +988,156 @@ class MainWindow(QMainWindow):
             tool=self.controls.selected_tool,
             brush_shape=str(self.controls.brush_shape.currentData()),
             brush_diameter=self.controls.brush_diameter.value(),
+            memo_enabled=self.canvas.memo_input_enabled,
+            memo_color=hex_from_rgb(self.canvas.memo_color),
             boundary_mode=self.controls.selected_boundary_mode,
             boundary_thickness=self.controls.boundary_thickness.value(),
             shortcuts=self.action_registry.assignments.as_dict(),
         )
 
     def _apply_settings_snapshot(self, snapshot: AppSettings) -> None:
-        """検証・永続化済み設定を画像状態と独立に一括反映する。"""
+        """検証済み設定を画像状態と独立に一括反映する。"""
 
+        previous_runtime = self._current_settings_snapshot()
+        runtime_folders = (
+            tuple(str(path) for path in self._folders) if self._folders else ("", "", "")
+        )
+        previous_runtime = replace(
+            previous_runtime,
+            original_folder=runtime_folders[0],
+            ternary_folder=runtime_folders[1],
+            output_folder=runtime_folders[2],
+        )
+        previous_applied = self.applied_settings
         previous_folders = self._folders
+        self._pending_settings_effects = None
+        try:
+            self._apply_settings_runtime(snapshot)
+        except Exception as exc:
+            try:
+                self._apply_settings_runtime(previous_runtime)
+            except Exception as rollback_exc:
+                self.applied_settings = previous_applied
+                raise RuntimeError(
+                    f"設定の画面反映と復元に失敗した：{rollback_exc}"
+                ) from exc
+            self.applied_settings = previous_applied
+            raise
+        self._pending_settings_effects = (
+            snapshot,
+            previous_folders,
+            previous_runtime.small_components,
+        )
+
+    def _settings_snapshot_committed(self, snapshot: AppSettings) -> None:
+        """保存成功後だけ、復元できない後続処理を開始する。"""
+
+        pending = self._pending_settings_effects
+        self._pending_settings_effects = None
+        if pending is None or pending[0] != snapshot:
+            return
+        _, previous_folders, previous_small_components = pending
         self.applied_settings = snapshot
-        self._release_pointer_inputs()
-        self.action_registry.set_assignments(ShortcutAssignments(snapshot.shortcuts))
-        self.controls.original_visible.setChecked(snapshot.original_visible)
-        self.controls.ternary_visible.setChecked(snapshot.ternary_visible)
-        self.controls.pseudo_enabled.setChecked(snapshot.pseudo_enabled)
-        self.controls.darken_comparison.setChecked(snapshot.darken_comparison_enabled)
-        self.controls.set_palette(tuple(rgb_from_hex(color) for color in snapshot.pseudo_colors))
-        self.controls.opacity_slider.setValue(snapshot.original_opacity)
-        self.controls.grid_enabled.setChecked(snapshot.grid_auto)
-        self.controls.small_components.setChecked(snapshot.small_components)
-        self.controls.select_tool(snapshot.tool)
-        self.controls.select_brush_shape(snapshot.brush_shape)
-        self.controls.brush_diameter.setValue(snapshot.brush_diameter)
-        self.controls.select_boundary_mode(snapshot.boundary_mode)
-        self.controls.boundary_thickness.setValue(snapshot.boundary_thickness)
-        if snapshot.original_folder and snapshot.ternary_folder and snapshot.output_folder:
-            self._folders = (
-                Path(snapshot.original_folder),
-                Path(snapshot.ternary_folder),
-                Path(snapshot.output_folder),
-            )
-        else:
-            self._folders = None
         if self._folders != previous_folders and self._pairs:
             self._message(
                 "フォルダ設定を適用した。表示中一覧は維持し、再走査時に新設定へ切り替える"
             )
+        if (
+            snapshot.small_components
+            and not previous_small_components
+            and self.session.is_loaded
+        ):
+            try:
+                self._request_components()
+            except Exception as exc:  # noqa: BLE001 - committed follow-up boundary
+                self._message(f"設定は保存したが、小領域解析を開始できない：{exc}")
+
+    def _settings_snapshot_failed(self) -> None:
+        self._pending_settings_effects = None
+
+    def _apply_settings_runtime(self, snapshot: AppSettings) -> None:
+        """Qt信号に例外を隠さず、部品と描画状態を同期する。"""
+
+        assignments = ShortcutAssignments(snapshot.shortcuts)
+        palette = tuple(rgb_from_hex(color) for color in snapshot.pseudo_colors)
+        memo_color = rgb_from_hex(snapshot.memo_color)
+        tool = EditTool(snapshot.tool)
+        brush_shape = BrushShape(snapshot.brush_shape)
+        folders = (
+            (
+                Path(snapshot.original_folder),
+                Path(snapshot.ternary_folder),
+                Path(snapshot.output_folder),
+            )
+            if snapshot.original_folder and snapshot.ternary_folder and snapshot.output_folder
+            else None
+        )
+        self._release_pointer_inputs()
+        self.action_registry.set_assignments(assignments)
+
+        signal_sources = (
+            self.controls,
+            self.controls.original_visible,
+            self.controls.ternary_visible,
+            self.controls.pseudo_enabled,
+            self.controls.darken_comparison,
+            self.controls.opacity_slider,
+            self.controls.grid_enabled,
+            self.controls.small_components,
+            self.controls.brush_shape,
+            self.controls.brush_diameter,
+            self.controls.boundary_mode,
+            self.controls.boundary_thickness,
+        )
+        previous_signal_states: list[tuple[QObject, bool]] = []
+        try:
+            for source in signal_sources:
+                previous_signal_states.append((source, source.blockSignals(True)))
+            self.controls.original_visible.setChecked(snapshot.original_visible)
+            self.controls.ternary_visible.setChecked(snapshot.ternary_visible)
+            self.controls.pseudo_enabled.setChecked(snapshot.pseudo_enabled)
+            self.controls.darken_comparison.setChecked(snapshot.darken_comparison_enabled)
+            self.controls.set_palette(palette)
+            self.controls.opacity_slider.setValue(snapshot.original_opacity)
+            self.controls.opacity_value.setText(f"{snapshot.original_opacity}%")
+            self.controls.grid_enabled.setChecked(snapshot.grid_auto)
+            self.controls.small_components.setChecked(snapshot.small_components)
+            self.controls.select_tool(snapshot.tool)
+            self.controls.select_brush_shape(snapshot.brush_shape)
+            self.controls.brush_diameter.setValue(snapshot.brush_diameter)
+            self.controls.select_boundary_mode(snapshot.boundary_mode)
+            self.controls.boundary_thickness.setValue(snapshot.boundary_thickness)
+        finally:
+            for source, was_blocked in reversed(previous_signal_states):
+                source.blockSignals(was_blocked)
+
+        self.canvas.original_visible = snapshot.original_visible
+        self.canvas.ternary_visible = snapshot.ternary_visible
+        self.canvas.set_original_opacity(snapshot.original_opacity / 100.0)
+        self.canvas.set_pseudo_enabled(snapshot.pseudo_enabled)
+        self.canvas.set_darken_comparison_enabled(snapshot.darken_comparison_enabled)
+        self.canvas.set_pseudo_palette(palette)
+        self.canvas.auto_grid_enabled = snapshot.grid_auto
+        self.canvas.warning_visible = snapshot.small_components and snapshot.ternary_visible
+        self.canvas.tool = tool
+        self.canvas.brush_shape = brush_shape
+        self.canvas.brush_diameter = snapshot.brush_diameter
+        self.canvas.memo_input_enabled = snapshot.memo_enabled
+        self.canvas.set_memo_color(memo_color)
+        self.brush_status.setText(f"筆径: {snapshot.brush_diameter} px")
+        self._folders = folders
+        cursor_image = self.canvas._cursor_image
+        if not snapshot.ternary_visible:
+            self.protection_status.setText("保護: 三値画像非表示・編集停止")
+        elif cursor_image is None:
+            self.protection_status.setText("保護: —")
+        elif self._pixel_is_protected(
+            int(cursor_image.y() if isinstance(cursor_image, QPointF) else cursor_image[1])
+        ):
+            self.protection_status.setText("保護: 下端100画素・強制無領域")
+        else:
+            self.protection_status.setText("保護: 編集可能")
+        self.canvas.update()
         self._update_interface()
 
     def _restore_folders_on_startup(
@@ -2608,6 +2729,8 @@ class MainWindow(QMainWindow):
         self.controls.small_components.setChecked(snapshot.small_components)
         self.controls.set_palette(tuple(rgb_from_hex(color) for color in snapshot.pseudo_colors))
         self.controls.brush_diameter.setValue(snapshot.brush_diameter)
+        self.canvas.memo_input_enabled = snapshot.memo_enabled
+        self.canvas.set_memo_color(rgb_from_hex(snapshot.memo_color))
         self.controls.select_brush_shape(snapshot.brush_shape)
         self.controls.select_tool(snapshot.tool)
         self.controls.select_boundary_mode(snapshot.boundary_mode)

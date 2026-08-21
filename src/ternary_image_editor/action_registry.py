@@ -412,7 +412,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     ),
     _spec("ファイル", "現在フォルダを再走査", "file.rescan-folders", OperationType.SINGLE, "F5"),
     _spec("ファイル", "保存", "file.save", OperationType.SINGLE, "Ctrl+S"),
-    _spec("アプリ", "設定を開く", "app.open-settings", OperationType.SINGLE, "Ctrl+,"),
+    _spec("アプリ", "設定", "app.open-settings", OperationType.SINGLE, "Ctrl+,"),
     _spec("アプリ", "終了", "app.exit", OperationType.SINGLE),
     _spec("履歴", "Undo", "edit.undo", OperationType.SINGLE, "Ctrl+Z"),
     _spec("履歴", "Redo", "edit.redo", OperationType.SINGLE, "Ctrl+Y", "Ctrl+Shift+Z"),

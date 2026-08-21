@@ -22,6 +22,7 @@ from .action_registry import (
 )
 from .constants import (
     DEFAULT_BRUSH_DIAMETER,
+    DEFAULT_MEMO_RGB,
     DEFAULT_PSEUDO_RGB,
     MAX_BOUNDARY_THICKNESS,
     MAX_BRUSH_DIAMETER,
@@ -32,6 +33,9 @@ from .constants import (
 SETTINGS_SCHEMA_VERSION = 2
 DEFAULT_PSEUDO_COLORS = tuple(
     f"#{red:02X}{green:02X}{blue:02X}" for red, green, blue in DEFAULT_PSEUDO_RGB
+)
+DEFAULT_MEMO_COLOR = (
+    f"#{DEFAULT_MEMO_RGB[0]:02X}{DEFAULT_MEMO_RGB[1]:02X}{DEFAULT_MEMO_RGB[2]:02X}"
 )
 
 
@@ -134,6 +138,8 @@ class AppSettings:
     tool: str = "brush"
     brush_shape: str = "circle"
     brush_diameter: int = DEFAULT_BRUSH_DIAMETER
+    memo_enabled: bool = True
+    memo_color: str = DEFAULT_MEMO_COLOR
     boundary_mode: str = "none_side"
     boundary_thickness: int = MIN_BOUNDARY_THICKNESS
     shortcuts: Mapping[str, ShortcutBindings] = field(default_factory=default_shortcuts)
@@ -155,12 +161,14 @@ class AppSettings:
             "darken_comparison_enabled",
             "grid_auto",
             "small_components",
+            "memo_enabled",
         ):
             _strict_bool(getattr(self, name), name=name)
         if len(self.pseudo_colors) != 3:
             raise ValueError("pseudo_colors must contain exactly three colors")
         colors = tuple(normalize_hex_color(color) for color in self.pseudo_colors)
         object.__setattr__(self, "pseudo_colors", colors)
+        object.__setattr__(self, "memo_color", normalize_hex_color(self.memo_color))
         _bounded_int(self.original_opacity, name="original_opacity", minimum=0, maximum=100)
         if self.tool not in {"brush", "fill"}:
             raise ValueError("tool must be brush or fill")
@@ -212,6 +220,8 @@ class SettingsWorkCopy:
     tool: str
     brush_shape: str
     brush_diameter: int
+    memo_enabled: bool
+    memo_color: str
     boundary_mode: str
     boundary_thickness: int
     shortcut_assignments: ShortcutAssignments
@@ -235,6 +245,8 @@ class SettingsWorkCopy:
             tool=settings.tool,
             brush_shape=settings.brush_shape,
             brush_diameter=settings.brush_diameter,
+            memo_enabled=settings.memo_enabled,
+            memo_color=settings.memo_color,
             boundary_mode=settings.boundary_mode,
             boundary_thickness=settings.boundary_thickness,
             shortcut_assignments=ShortcutAssignments(settings.shortcuts),
@@ -261,6 +273,8 @@ class SettingsWorkCopy:
             tool=self.tool,
             brush_shape=self.brush_shape,
             brush_diameter=self.brush_diameter,
+            memo_enabled=self.memo_enabled,
+            memo_color=self.memo_color,
             boundary_mode=self.boundary_mode,
             boundary_thickness=self.boundary_thickness,
             shortcuts=self.shortcut_assignments.as_dict(),
@@ -326,6 +340,12 @@ class SettingsRepository:
                 minimum=MIN_BRUSH_DIAMETER,
                 maximum=MAX_BRUSH_DIAMETER,
             ),
+            memo_enabled=self._read_bool("memo/enabled", defaults.memo_enabled),
+            memo_color=self._read_value(
+                "memo/color",
+                defaults.memo_color,
+                normalize_hex_color,
+            ),
             boundary_mode=self._read_choice(
                 "boundary/mode",
                 defaults.boundary_mode,
@@ -363,6 +383,8 @@ class SettingsRepository:
             "edit/tool": snapshot.tool,
             "edit/brushShape": snapshot.brush_shape,
             "edit/brushDiameter": snapshot.brush_diameter,
+            "memo/enabled": snapshot.memo_enabled,
+            "memo/color": snapshot.memo_color,
             "boundary/mode": snapshot.boundary_mode,
             "boundary/thickness": snapshot.boundary_thickness,
         }
@@ -563,6 +585,7 @@ def _raise_value_error() -> str:
 
 __all__ = [
     "AppSettings",
+    "DEFAULT_MEMO_COLOR",
     "DEFAULT_PSEUDO_COLORS",
     "SETTINGS_SCHEMA_VERSION",
     "SettingsPersistenceError",
