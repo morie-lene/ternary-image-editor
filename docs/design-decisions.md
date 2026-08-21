@@ -42,7 +42,8 @@
 | 離散筆・decision.brush.discrete-dxd-mask | adopted | ポインタ下画素を錨とし、仕様の離散 `D×D` 円・正方形マスクをBresenhamで結んで、予告と編集へ共用する。偶数径の余剰は+x/+y側 | EDIT-008、AT-072。旧連続中心判断を置換 |
 | 筆取引・decision.stroke.atomic-cancel | adopted | 押下時の色・径・形状と変更前配列を固定し、正常解放だけを一履歴単位で確定する。Esc、非活性化、捕捉喪失は筆跡全体を復元し、描画中の他命令は実行も予約もしない | EDIT-009/010、AT-071。旧DPI変化時確定判断を置換 |
 | 筆局所更新・decision.brush.dirty-region | adopted | 各筆区間はBresenhamと離散筆を線分外接ROI内だけへ適用し、実変更時だけ半開変更矩形を返す。Canvasはラベル表示像を変更矩形へ、旧・新ポインタを別々の更新矩形へ限定し、非連続paint領域の背景・格子も構成矩形ごとに列挙する。Undo、取消、色表・比較状態変更などの全体変更には全画像更新を残す | 最終ラベル、保存、履歴の意味を変えず入力待ち行列を減らす。公開画素等価・局所割当・比較性能試験で差戻し、Windows実入力は性能判断門に残す |
-| 性能証拠版境界・decision.evidence.brush-baseline-version | adopted | `brush-responsiveness-benchmark-2026-08-20.json`の`application_version: 0.7.1`を測定時身元として保持し、版0.8.0の包装では0.7.1基線証拠として読む | 過去測定を現行版で再測定したように偽装しない。0.8.0の性能受理には別観測が必要 |
+| パン全表示更新・decision.pan.full-viewport-repaint | adopted | 中ボタンまたは一時パン中の左ボタンが表示写像を動かすたびにCanvas全表示域を更新する。通常の筆・メモ・ポインタ移動は局所更新のまま保つ | パンは全表示層の写像を変えるため、指示位置矩形だけの更新では旧像が残る。ドラッグ中に局所欠損、無更新、解放時の跳びがあれば差戻す |
+| 性能証拠版境界・decision.evidence.brush-baseline-version | adopted | `brush-responsiveness-benchmark-2026-08-20.json`の`application_version: 0.7.1`を測定時身元として保持し、版0.8.0以降の包装では0.7.1基線証拠として読む | 過去測定を現行版で再測定したように偽装しない。現行版の性能受理には別観測が必要 |
 | 画像内OSカーソル・decision.pointer.native-hidden | adopted | 三値画像上で独自の筆・塗り潰し・保護ポインタが表示される間はOSカーソルを隠す。画像外では通常へ戻し、Space一時移動と実パンの手形は優先して残す | 同位置の二重表示を除きつつ、独自表示がない場所と移動状態の手掛かりを失わない。公開遷移試験とWindows目視判断門で検証 |
 | 原解像度表示・decision.display.native-first | adopted | 原解像度でラベル、疑似色、原画像を合成した完成像を一度だけ倍率へ拡縮し、overlayを最後に描く | VIEW-005/006。表示像を保存正本にしない |
 | 未保存遷移・decision.transition.deferred-discard | adopted | 移動先の読込可否が確定する前に現在編集の破棄を確定しない | 移動先の読込失敗やJPEG取込取消で現在編集だけを失う事故を防ぐ |
@@ -117,7 +118,7 @@
 
 | 判断参照 | 状態 | 内容 | 根拠と差戻し条件 |
 | --- | --- | --- | --- |
-| 追補優先境界・decision.memo.addendum-precedence | adopted | マウス追補の未割当右button固定操作とAT-065のUndo・Redo停止だけを列挙条件で上書きし、既存正本とhashを保持する | 要求身元を保つ。列挙外の入力・保存・設定契約へ作用したら差戻す |
+| 追補優先境界・decision.memo.addendum-precedence | adopted | version 1.0はマウス追補の未割当右button固定操作とAT-065のUndo・Redo停止を列挙条件で上書きし、version 1.1はメモ生成・記入色設定と設定入口だけを追加する。既存正本とhashは保持する | 要求身元を保つ。列挙外の入力・保存・設定契約へ作用したら差戻す |
 | 右button完全一致・decision.memo.exact-right-fallback | adopted | 完全一致割当を常に先に消費し、未割当の右button tokenだけを固定メモ一筆へ渡す。割当時は失う固定メモを事前確認する | 一入力から割当操作とメモを二重発火させず、別修飾tokenの利用可能性も奪わない |
 | 最上段非保存層・decision.memo.topmost-transient-layer | adopted | メモは表示注記の最上段へ描くが、ラベル、内容基準、改訂、解析、未保存判定、保存PNGへ通さない | 注記と正本を分離する。メモだけで保存確認が出る、またはPNGへ混入したら差戻す |
 | 単一複合履歴・decision.memo.unified-history | adopted | メモ一筆、ラベル編集、両者の複合編集を一列へ積み、操作数とbyte数を共通上限へ算入する | 二履歴の順序ずれとRedo枝の不整合を避ける。種別を飛び越すUndo・Redoがあれば差戻す |
@@ -125,6 +126,8 @@
 | 筆重複消去・decision.memo.label-overlap-erases | adopted | ラベル筆の幾何学的範囲にあるメモを同色ラベル上でも消し、ラベル差分と同じ履歴項目へ束ねる | 消しゴムを別操作にせず、取消・Undo・Redoの原子性を保つ。メモだけ消えた同色筆を無変更扱いしたら差戻す |
 | 成功専用破棄・decision.memo.success-only-discard | adopted | 保存成功では履歴中のメモ成分まで除き、画像交換成功では旧セッションごと破棄する。失敗・取消は現在メモと履歴位置を保つ | 成功前に注記を失わず、成功後のUndoで非保存メモを蘇生させない |
 | 非表示時先頭門・decision.memo.hidden-label-history-gate | adopted | 三値非表示時は次項目が`memo-only`なら適用し、`label-containing`なら停止して奥を探索しない | AT-065のラベル編集禁止と単一時系列を同時に守る。都合のよい項目だけの飛越しを許さない |
+| メモ設定の所属・decision.memo.preference-ownership | adopted | 生成可否と将来筆跡の内線RGBだけをschema 2の既定可能なQSettingsとし、メモ画素・履歴・既存筆跡は変更しない | 利用者の入力好みと画像セッション内容を分離する。色変更で既存メモまたは保存PNGが変わったら差戻す |
+| 設定入口・decision.memo.settings-entry | adopted | 既存`app.open-settings`を共有し、表示名を「設定」としてmenu barの「ヘルプ」直前へ置く。file menuからは除くが主toolbarと操作欄は保つ | 操作ID・割当・他入口の同一性を崩さず、入口を目的位置へ移す |
 
 ## 置換済み判断
 
@@ -153,7 +156,7 @@
 | 任意寸法資源量・risk.flex.unbounded-positive-size | 正寸法と復号器の過大画像防護を維持し、性能例を実測する | 明示的な最大幅・高さを契約しておらず、極大画像の処理時間とメモリを一律保証しない | 対象業務寸法で反復測定し、上限が必要なら別要求として決める |
 | ICC変換環境差・risk.flex.icc-runtime | JPEG入力はICC不正を拒否し、変換後sRGBに同じ三値化式を適用する | Windows配布物の色管理ライブラリで各実ICC付きJPEGが同じ業務結果になること | 代表ICC付きJPEGをWindows候補で照合する |
 | 復旧出力ICC退避差・risk.flex.output-recovery-icc-runtime | 復旧出力はICC変換をbest-effortとし、失敗時は通常RGBへ退避して警告状態を残す | Windows配布物と実外部生成器のICCについて、変換成功可否、退避後RGB、三値化結果、警告表示が局所環境と一致すること | 代表する実物ICC付き外部出力をWindows候補で開き、表示、警告、元hash不変、明示保存結果を人間が記録する |
-| Windows一時メモ入力差・risk.memo.windows-input-paint | 合成Qt event、履歴・保存・遷移の局所試験、公開ソース接続契約で境界を検査 | Windows実マウスの右drag・焦点喪失、DPI跨ぎ、最上段の視認性、配布候補でのUndo体感 | Windows MEMO-AT-001〜010を実施し、二重発火、消失、飛越し、保存混入があれば配布を止める |
+| Windows一時メモ入力差・risk.memo.windows-input-paint | 合成Qt event、履歴・保存・遷移の局所試験、公開ソース接続契約で境界を検査 | Windows実マウスの右drag・焦点喪失、DPI跨ぎ、最上段の視認性、配布候補でのUndo体感、OS色選択部品と再起動復元 | Windows MEMO-AT-001〜012を実施し、二重発火、消失、飛越し、保存混入、設定不整合があれば配布を止める |
 
 ## 保留中の人間判断
 
@@ -168,4 +171,4 @@
 | Windowsポインタ割当受理・decision.windows-pointer-acceptance | human | マウス入力割当追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | PTR-AT-011の四項目を実機で記録する | Windows候補構築後・配布判断前 | `mouse-input-bindings-addendum.md`, `requirements-traceability.md` |
 | Windows柔軟入力受理・decision.windows-flexible-input-acceptance | human | 柔軟入力・対応付け追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | 自然順全表、JPEG警告・ICC、選択源別の入力不変・寸法・Orientation・fallback通知・保存基準、`H=100/101`に加え、外部生成器の実PNG、実物ICC、strict-first復旧、preflight INPUT退避を実機で記録する | Windows候補構築後・配布判断前 | `flexible-input-pairing-addendum.md`, `windows-acceptance-checklist.md` |
 | Windows表示比較受理・decision.windows-display-comparison-acceptance | human | 表示比較（暗）追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | Darken画素、疑似色、片層表示、各DPI、操作割当、再起動復元、保存PNG不変を実機で記録する | Windows候補構築後・配布判断前 | `display-comparison-addendum.md`, `windows-acceptance-checklist.md` |
-| Windows一時メモ受理・decision.windows-transient-memo-acceptance | human | 一時メモ層追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | MEMO-AT-001〜010の入力、表示、履歴、保存・遷移境界を実機で記録する | Windows候補構築後・配布判断前 | `transient-memo-layer-addendum.md`, `windows-acceptance-checklist.md` |
+| Windows一時メモ受理・decision.windows-transient-memo-acceptance | human | 一時メモ層追補の配布受理 | local実装にはnonblocking、追補の配布受理にはblocking | MEMO-AT-001〜012の入力、表示、履歴、保存・遷移、設定・入口境界を実機で記録する | Windows候補構築後・配布判断前 | `transient-memo-layer-addendum.md`, `windows-acceptance-checklist.md` |

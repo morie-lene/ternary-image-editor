@@ -4,13 +4,13 @@
 PNGとして別保存するWindows向けデスクトップGUI。
 
 筆、塗り潰し、二種の境界生成、Undo・Redo、原画像の重畳、比較（暗）、疑似色、画素格子、
-小領域強調、操作割当を一つの画面にまとめている。
+小領域強調、一時メモ、操作割当を一つの画面にまとめている。
 
 ## 現在の状態
 
 | 項目 | 状態 |
 | --- | --- |
-| アプリケーション版 | `0.8.0` |
+| アプリケーション版 | `0.9.0` |
 | 対象環境 | Windows 10 / 11 64-bit |
 | ソース実行環境 | Python 3.11.x、`uv` |
 | 提供形態 | ソース実行、Windows配布候補のローカル構築 |
@@ -107,7 +107,8 @@ Orientationがないか1だけを受理し、2〜8は自動転置せず拒否す
 2. 一覧から画像対を開く。厳格条件を満たすか限定復旧できる編集済み出力があれば原画像＋出力を
    自動的に開き、なければ原画像＋入力版を開く。
 3. 原画像の重畳、不透明度、比較（暗）、疑似色、格子を調整し、筆・塗り潰し・境界生成で三値画像を直す。
-4. 必要なら、未割当の右ボタンで保存対象外の一時メモを上描きする。
+4. 必要なら、未割当の右ボタンで保存対象外の一時メモを上描きする。生成の有効・無効と記入色は、
+   menu barの「ヘルプ」直前にある「設定」で変更する。
 5. 「保存」または既定の`Ctrl+S`で、出力フォルダへ検証付きPNGを保存する。
 6. 画像移動や終了時に未保存変更があれば、保存・破棄・中止を選ぶ。
 
@@ -116,7 +117,9 @@ Orientationがないか1だけを受理し、2〜8は自動転置せず拒否す
 未割当の右ボタンは一時メモ、戻る・進むボタンには固定操作がない。「設定」では左右・中・戻る・
 進むボタンとホイール上下へ、`Ctrl`、`Alt`、`Shift`を組み合わせた操作を割り当てられる。右ボタンも
 修飾キーを含む完全一致割当があれば割当操作を優先し、メモを描かない。割当は主画像キャンバス上だけで
-作動し、設定画面や一般UIのクリック・ホイールは奪わない。詳しい優先・解放規則は
+作動し、設定画面や一般UIのクリック・ホイールは奪わない。メモ生成を無効にしても完全一致割当は
+従来どおり作動する。「設定」はファイルmenu内ではなく、menu barの「ヘルプ」直前にあり、主toolbarと
+control panelの既存入口も維持する。詳しい優先・解放規則は
 [マウス入力割当追補](docs/mouse-input-bindings-addendum.md)と
 [一時メモ層追補](docs/transient-memo-layer-addendum.md)を参照する。
 
@@ -143,8 +146,13 @@ Orientationがないか1だけを受理し、2〜8は自動転置せず拒否す
   なぞった時は表示更新を行わない。Undo、取消、保存の画素契約は全画像更新時と同じである。
 - 画像上では筆・塗り潰し・保護状態の独自ポインタが位置を示すため、OSカーソルを隠す。
   画像外では通常表示へ戻し、`Space`一時移動と中ボタン移動では開いた手・閉じた手を表示する。
+- 中ボタン、または`Space`保持中の左ボタンで移動する間は、指示位置だけでなく表示域全体を毎移動ごとに
+  再描画する。三値画像層の表示状態にかかわらず画像がドラッグへ追従し、解放時だけ跳ぶ状態を残さない。
 - 一時メモは現在画像だけに属する最上段の上描きで、メモだけでは未保存状態にならず、画像移動・終了の
   保存確認も出さない。メモ一筆と通常編集は一つのUndo・Redo時系列を共有する。
+- 設定画面では右クリックによるメモ生成を有効・無効にでき、記入色を`#RRGGBB`、色選択部品、既定復元で
+  変更できる。有効・無効と色は再起動後も復元するが、メモ画素とメモ履歴は復元しない。設定変更は以後の
+  一筆とメモポインタへ反映し、既に描いたメモを再着色しない。黒い外線と透過度は固定である。
 - ラベル筆がメモへ重なった時は、同色ラベル上でも重なったメモを消し、ラベルとメモの差分を同じ
   履歴操作にする。筆取消・Undo・Redoでは両方を一緒に戻す。
 - 正常保存と正常な画像交換では一時メモを破棄する。保存失敗、読込失敗、遷移取消では現在のメモと
@@ -198,10 +206,11 @@ uv build
   再起動復元、破損設定の既定退避、画像状態不変。
 - 筆の円・正方形、補間、画像外再進入、保護領域、同色無更新、変更矩形、比較表示画素、
   主画面の局所更新経路、非連続ポインタ更新、局所格子列挙、独自ポインタ表示中のOSカーソル
-  非表示、同一process内の相対性能退行門。
+  非表示、同一process内の相対性能退行門。中ボタン／`Space`＋左ボタンと三値画像層の表示／非表示を
+  組み合わせ、各ドラッグ移動の解放前に表示域全体が実際に再描画されること。
 - 一時メモの右button完全一致優先、最上段・非保存性、一筆原子性、通常編集との単一時系列、
   ラベル筆による同操作消去、三値非表示時の次項目門、保存・画像交換の成功専用破棄と失敗維持、
-  共通履歴上限への算入。
+  共通履歴上限への算入、生成・色設定の永続境界、設定入口。
 - 2048×1536の長筆を局所矩形だけで更新して全表示結果と一致させ、メモ複合履歴と200件の疎履歴を
   全画像snapshot列へ膨張させずUndo・Redoできること。
 - 別processが保持する協調保存lockを即時検出し、別processによる出力置換を既存出力と未保存編集を
@@ -212,8 +221,8 @@ uv build
 - sdistとwheelを実際に生成できること。
 - sdistにREADME、`pyproject.toml`、`uv.lock`、Windows構築入口、隔離wheel検証script、v1.5仕様書、
   柔軟入力・対応付け追補、マウス入力割当追補、表示比較（暗）追補、一時メモ層追補、試験戦略、
-  macOS画面有り検証記録、九つの公開試験が入ること。
-- 版0.7.1で採取した筆性能JSONを`application_version: 0.7.1`の基線証拠として含め、応用版0.8.0の
+  macOS画面有り検証記録、一時メモ設定検証記録、パン中再描画検証記録、九つの公開試験が入ること。
+- 版0.7.1で採取した筆性能JSONを`application_version: 0.7.1`の基線証拠として含め、応用版0.8.0以降の
   現行性能証拠へ偽装しないこと。
 - wheelにアプリケーション、GUI入口、三形式のアイコン、実行入口metadataが入ること。
 - Windows構築スクリプトが公開包装試験を必須入力とし、`uv sync`、pytest、Ruff、PyInstallerの
@@ -248,6 +257,14 @@ sdist/wheel構築、隔離wheel画面外煙試験が成功した。メモ像は�
 全530件、公開九試験143件が成功した。詳細は
 [用途指向試験補強・ローカル検証記録](docs/local-verification-2026-08-20-local-acceptance.md)と
 [macOS画面有り利用経路・ローカル検証記録](docs/local-verification-2026-08-21-headed-macos.md)に分離した。
+版0.9.0は、メモ生成の有効・無効、記入色、既存メモ非再着色、表示名「設定」とヘルプ直前の入口、
+低い画面でも使えるscroll可能な設定頁を追加した。全540件、公開九試験153件、静的検査、依存固定、
+sdist/wheel構築、隔離wheel経路、Qt画面外描画が成功した。Windows物理入力、OS色選択部品、DPI、
+PyInstaller候補は未受理である。詳細は
+[一時メモ設定・設定入口ローカル検証記録](docs/local-verification-2026-08-21-memo-settings.md)に分離した。
+同じ版0.9.0の後続修正では、中ボタン／`Space`＋左ボタンのパンがドラッグ中に追従しない欠陥を直し、
+全544件、公開九試験157件、静的検査、sdist/wheel構築、隔離wheel経路まで再検査した。詳細は
+[パン中再描画・ローカル検証記録](docs/local-verification-2026-08-21-middle-pan-repaint.md)に分離した。
 測定器は`scripts/benchmark_brush_responsiveness.py`、同日の原出力は
 `docs/brush-responsiveness-benchmark-2026-08-20.json`へ収載した。PowerShellでは次で再実行できる。
 
@@ -261,10 +278,10 @@ uv run --locked python .\scripts\benchmark_brush_responsiveness.py
 
 ```powershell
 uv build
-$WheelPath = Resolve-Path .\dist\ternary_image_editor-0.8.0-py3-none-any.whl
+$WheelPath = Resolve-Path .\dist\ternary_image_editor-0.9.0-py3-none-any.whl
 $WheelHash = (Get-FileHash -LiteralPath $WheelPath -Algorithm SHA256).Hash.ToLowerInvariant()
 uv run --locked python .\scripts\verify_isolated_workflow.py $WheelPath `
-  --version 0.8.0 --expected-wheel-sha256 $WheelHash
+  --version 0.9.0 --expected-wheel-sha256 $WheelHash
 ```
 
 Windows固有事項は
@@ -320,7 +337,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\work\ternary-image-edito
 | [柔軟入力・対応付け追補](docs/flexible-input-pairing-addendum.md) | version 1.3。対応方式、参照原画像、JPEG三値化、選択ラベル源、外部出力復旧、保存済み出力再開、任意寸法、下端保護を限定上書き |
 | [マウス入力割当追補](docs/mouse-input-bindings-addendum.md) | v1.5のマウス割当部分だけを限定上書き |
 | [表示比較（暗）追補](docs/display-comparison-addendum.md) | version 1.0。比較（暗）の表示合成、永続設定、39件目の操作だけを限定上書き |
-| [一時メモ層追補](docs/transient-memo-layer-addendum.md) | version 1.0。未割当右button、最上段非保存表示、単一履歴、保存・画像交換境界を限定上書き |
+| [一時メモ層追補](docs/transient-memo-layer-addendum.md) | version 1.1。未割当右button、最上段非保存表示、単一履歴、保存・画像交換境界、生成・色設定と設定入口を限定上書き |
 | [開発仕様書 v1.1](docs/ternary_image_editor_spec_v1_1.html) | 旧版の履歴。現行判断には用いない |
 | [要求追跡表](docs/requirements-traceability.md) | 要求、実装、検証層、未受理事項の対応 |
 | [試験戦略](docs/test-strategy.md) | 用途危険、証拠層、追加・削除基準、性能・外部画像資料、保証限界、公開保存面 |
@@ -339,14 +356,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:\work\ternary-image-edito
 | [一時メモ層ローカル検証記録](docs/local-verification-2026-08-20-transient-memo.md) | 版0.8.0の一時メモ入力・統一履歴・保存／遷移境界・包装とWindows未完了境界 |
 | [用途指向試験補強・ローカル検証記録](docs/local-verification-2026-08-20-local-acceptance.md) | 代表寸法・別process競合・隔離wheel利用経路、版0.8.0性能再観測、未完了の実画面／Windows境界 |
 | [macOS画面有り利用経路・ローカル検証記録](docs/local-verification-2026-08-21-headed-macos.md) | source通常窓の出力優先再開、実pointer操作、右単一クリック欠陥の再現・修正、残る物理入力／Windows境界 |
+| [一時メモ設定・設定入口ローカル検証記録](docs/local-verification-2026-08-21-memo-settings.md) | 版0.9.0の生成・色設定、設定入口、画面寸法、公開試験・包装とWindows未完了境界 |
+| [パン中再描画・ローカル検証記録](docs/local-verification-2026-08-21-middle-pan-repaint.md) | 中ボタン／Space＋左ボタンのドラッグ中追従、三値画像層の表示状態、公開事故回帰とWindows未完了境界 |
 | [Windows最終受入チェックリスト](docs/windows-acceptance-checklist.md) | Windows実機の結果を記録し、人間が配布可否を決める表 |
 
 v1.5仕様書のSHA-256は
 `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`、柔軟入力・対応付け追補version 1.3は
 `ce148618e7cf049cbfe2fa13e00fc4f3cb17b4726c4bf8e878bd63edcbb6255c`、マウス入力割当追補version 1.0は
 `91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`、表示比較（暗）追補version 1.0は
-`26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`、一時メモ層追補version 1.0は
-`2ee72910899b8daf9761bb41ad7312933444831e87da5200b61b358594567fb0`。構築スクリプトもこれらの固定値を
+`26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`、一時メモ層追補version 1.1は
+`151cd712ecef775c3a513a3c8bbcf7df13806e34c42aaaffb7c52d3eab9f08f7`。構築スクリプトもこれらの固定値を
 照合する。
 
 ## 利用条件

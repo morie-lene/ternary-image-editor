@@ -2,7 +2,7 @@
 
 ## 基線
 
-- 応用版: `0.8.0`
+- 応用版: `0.9.0`
 - 基線要求正本: `TIE-SPEC-001` version 1.5
 - 基線SHA-256: `ed267bde1634072f1e3249d0c7d0670cdec1dbd08e3130380844cff492c0c497`
 - 限定追補: `TIE-ADD-FLEX-001` version 1.3
@@ -11,18 +11,17 @@
 - 限定追補SHA-256: `91d7fec202e9c211de29fcecab5ba3dd78be539b814fb1a58737b38c40964eba`
 - 限定追補: `TIE-ADD-DISP-CMP-001` version 1.0
 - 限定追補SHA-256: `26f1ff442548d51f66bdb518a14d10d92e52e48c10daec877a8ab04ad27e3779`
-- 限定追補: `TIE-ADD-MEMO-001` version 1.0
-- 限定追補SHA-256: `2ee72910899b8daf9761bb41ad7312933444831e87da5200b61b358594567fb0`
+- 限定追補: `TIE-ADD-MEMO-001` version 1.1
+- 限定追補SHA-256: `151cd712ecef775c3a513a3c8bbcf7df13806e34c42aaaffb7c52d3eab9f08f7`
 - 範囲: v1.5の必須事項、`AT-001`〜`AT-079`、`FLEX-AT-001`〜`FLEX-AT-018`、
   `PTR-AT-001`〜`PTR-AT-011`、`DISP-CMP-001`〜`DISP-CMP-008`、
-  `MEMO-AT-001`〜`MEMO-AT-010`
+  `MEMO-AT-001`〜`MEMO-AT-012`
 - 非目的: v1.5 19節の対象外。ただし柔軟入力・対応付けは`TIE-ADD-FLEX-001`、マウス入力割当は
   `TIE-ADD-PTR-001`、表示比較（暗）は`TIE-ADD-DISP-CMP-001`、一時メモ層は
   `TIE-ADD-MEMO-001`が各限定範囲を上書きし、各追補の非目的に従う
 
-版文字列`0.8.0`は応用metadataであり、過去の局所0.8.0 wheelと現在の未commit修正版sourceを
-同一artifactにしない。2026-08-21の実行対象は
-`local-verification-2026-08-21-headed-macos.md`に記録した関連源SHA-256で区別する。
+版文字列`0.9.0`は応用metadataである。版0.8.0までの局所wheelと検証記録は履歴証拠として保持し、
+0.9.0の成果物またはWindows受理へ読み替えない。
 
 v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用いない。WP0〜WP6の番号と成果物は
 その履歴から継続した作業包として残し、v1.2〜v1.5で追加した実装を同じ責任範囲へ統合する。
@@ -51,6 +50,7 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP13 | 外部由来出力PNGの限定復旧、同一snapshot検査、preflight入力退避 | WP10、WP12 | FLEX-AT-017〜018、非破壊・保存正規化・通知・回帰試験、Windows判断門 |
 | WP14 | 筆演算・ラベル像・ポインタ・格子の変更矩形更新、公開比較性能試験 | WP2、WP4、WP5、WP13 | AT-071〜072、画素等価、局所割当、相対性能門、Windows性能判断門 |
 | WP15 | 一時メモ層、右button完全一致優先、単一複合履歴、成功専用破棄、追補・公開試験・包装同期 | WP3、WP4、WP7、WP14 | MEMO-AT-001〜010、動的履歴試験、公開源接続・低倍率一点事故回帰、包装、Windows判断門 |
+| WP16 | 一時メモ生成・記入色設定、設定入口移動、追補version 1.1・公開試験・包装同期 | WP7、WP15 | MEMO-AT-011〜012、設定往復・画素・入口試験、全局所検査、Windows判断門 |
 
 ## 現在状態
 
@@ -72,6 +72,8 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 | WP13 | completed-local-with-residual | 外部由来出力PNGの同一snapshot strict-first限定復旧、非破壊三値化、`OUTPUT`未保存状態、明示保存正規化、復旧不能出力からの三preflight入口INPUT退避、有効ICC用sample展開、IEND終端検査、直接fallbackの内容指紋束縛を版0.7.0へ実装。明示INPUT/OUTPUTの互換境界も維持した。全456試験、公開100試験、Ruff、依存固定、差分形式、sdist/wheel、画面外GUI煙試験が成功。Windows実画面、実外部生成器PNG、実物ICCによる受理はpending |
 | WP14 | completed-local-with-residual | 離散筆のmask確保とラベル表示像を線分ROIへ、旧・新ポインタを別更新矩形へ、背景・格子をpaint領域の構成矩形へ限定し、同色区間の表示更新を省略した。独自モードポインタ表示中はOSカーソルを隠す。全477試験、公開115試験、性能標識1試験が成功。収載probeによる2048×1536局所A/Bのp50は格子なし12.45倍、高倍率格子あり20.00倍。Windows実入力対光子時間と人間の追従感受理はpending |
 | WP15 | completed-local-with-residual | 一時メモの表示・入力・単一複合履歴、成功専用破棄、遅延表示像・疎一筆追跡、DPI取消、公開契約・包装を版0.8.0へ統合。2026-08-20時点の全520試験・公開133試験成功後、画面有りsource経路で低倍率右一点欠陥を検出し、一点`drawPoint`分岐、実`mouseClick`事故回帰、点・Undo/Redo・保存時破棄・筆重畳消去の再観測を追加した。後続の全530試験・公開九試験143件、静的検査、sdist/wheel構築も成功。Windows実マウス、DPI、焦点喪失、配布候補の受理はpending |
+| WP16 | completed-local-with-residual | メモ生成・記入色設定、既存メモ非再着色、表示名「設定」、help直前入口、scroll可能な設定頁、反映・保存失敗時の設定復元、追補version 1.1と固定hashを版0.9.0へ統合。全540試験、公開九試験153件、Ruff、固定lock、bytecode compile、差分形式、sdist/wheel、隔離wheel経路、Qt画面外描画が成功。Windows実マウス、DPI、色選択部品、PyInstaller候補の受理はpending |
+| WP17 | completed-local-with-residual | 中ボタン／Space＋左ボタンのパン中に表示写像だけ進み、三値画像層の表示時は指示位置周辺だけ、非表示時は無更新となる欠陥を修正。四条件の公開動的事故回帰を追加し、全544試験、公開九試験157件、Ruff、固定lock、bytecode compile、差分形式、sdist/wheel、隔離wheel経路が成功。Windows物理入力、DPI、入力対光子時間、PyInstaller候補はpending |
 
 ## 変更統制
 
@@ -83,13 +85,13 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
 
 ## 安全性・依存・構成影響
 
-- 新しい認証、認可、秘密情報、network通信、telemetry、外部log出力は追加しない。入力は読取専用、
-  書込先は既存の明示保存で指定した出力PNGと協調lockに限る。
+- 新しい認証、認可、秘密情報、network通信、telemetry、外部log出力は追加しない。画像入力は読取専用、
+  画像fileの書込先は既存の明示保存で指定した出力PNGと協調lockに限る。利用者設定は既存QSettings内の既知鍵に限る。
 - 依存package集合を追加・削除せず、既存のPillow `ImageCms`、NumPy、Qtを使う。
-  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.8.0`へ同期する。0.7.1で採取した
-  筆性能JSONは測定時版を変更せず、0.8.0の包装では0.7.1基線証拠として扱う。Windows配布候補では
+  `pyproject.toml`と`uv.lock`は応用版metadataだけを`0.9.0`へ同期する。0.7.1で採取した
+  筆性能JSONは測定時版を変更せず、0.9.0の包装では0.7.1基線証拠として扱う。Windows配布候補では
   同梱された色管理経路と現行版の性能を別途実機確認する。
-- 永続設定には列挙型の対応方式と、既定falseの比較（暗）真偽値だけを加える。対応方式の不明・破損値は
+- 永続設定には列挙型の対応方式、既定falseの比較（暗）真偽値、一時メモの生成可否と記入色を加える。対応方式の不明・破損値は
   厳格対応へ、比較（暗）の欠損・破損値はfalseへ戻す。自然順の対応表に対する確認結果とJPEG一件ごとの
   変換許可は永続化しない。
 - フォルダ変更・再走査・起動時再読込は別`ImageSession`で候補を読込preflightし、成功後だけ
@@ -109,6 +111,8 @@ v1.1とそのSHA-256は履歴正本であり、現在の実装判断には用い
   保存成功では履歴中のメモ成分まで除き、保存失敗と遷移取消では現在メモと履歴位置を保つ。
   原解像度QImageは初回メモ使用まで確保せず、空になれば解放する。一筆の既訪問管理は全画面maskを
   作らず、実際に触れた画素索引だけを保持する。
+- メモの生成可否と内線RGBだけをschema 2の既定可能な利用者設定としてQSettingsへ保存する。メモ画素・
+  履歴は永続化せず、既存メモを再着色しない。設定入口は既存`app.open-settings`を共有する。
 
 ## 判断門
 

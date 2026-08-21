@@ -46,6 +46,7 @@ DEFAULT_PSEUDO_RGB: tuple[tuple[int, int, int], ...] = (
     (0xFF, 0x3B, 0x7A),
     (0xFF, 0xE6, 0x00),
 )
+DEFAULT_MEMO_RGB = (0xFF, 0xD6, 0x40)
 
 ORIGINAL_PREFIX_GROUP = {"①": "001", "②": "002"}
 TERNARY_PREFIX_GROUP = {"001": "001", "002": "002"}
